@@ -272,7 +272,7 @@ The goal is a **city compiler**, not a tech demo.
 ## Build, Test, and Development Commands
 - Configure: `cmake -S . -B build` generates build files in `build/`.
 - Build: `cmake --build build` compiles the `buildings` executable.
-- Run: `./build/buildings sample_config.json` writes the OBJ file and prints a status line.
+- Run: `./build/buildings config/sample_config.json` writes the OBJ file and prints a status line.
 - CLion users can build/run via the IDE using the existing `cmake-build-debug/` directory.
 
 ## Coding Style & Naming Conventions

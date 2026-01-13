@@ -1,5 +1,6 @@
 #include "city_builder.h"
 
+#include <iostream>
 #include <random>
 
 #include "config.h"
@@ -10,6 +11,13 @@
 #include "style_brutalist.h"
 
 namespace {
+
+struct BuildStats {
+    int buildingCount = 0;
+    int parkCount = 0;
+    int parkingCount = 0;
+    int lotCount = 0;
+};
 
 struct Rng {
     std::mt19937 gen;
@@ -172,7 +180,7 @@ void AddLotSlab(Mesh& out, const Polygon2D& lot, Vec3 color)
     Append(out, slab);
 }
 
-void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by)
+void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by, BuildStats* stats)
 {
     if(!cfg.showLots){
         return;
@@ -190,6 +198,9 @@ void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by)
         Polygon2D north = MakeRect(x, by + cfg.blockSizeY - inset - cfg.lotDepth, cfg.lotWidth, cfg.lotDepth);
         AddLotSlab(out, south, cfg.lotColor);
         AddLotSlab(out, north, cfg.lotColor);
+        if(stats){
+            stats->lotCount += 2;
+        }
     }
 
     for(int j=0;j<countY;j++){
@@ -198,10 +209,31 @@ void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by)
         Polygon2D east = MakeRect(bx + cfg.blockSizeX - inset - cfg.lotDepth, y, cfg.lotDepth, cfg.lotWidth);
         AddLotSlab(out, west, cfg.lotColor);
         AddLotSlab(out, east, cfg.lotColor);
+        if(stats){
+            stats->lotCount += 2;
+        }
     }
 }
 
-void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng)
+const char* FacadeLabel(sbl::FacadeType facade)
+{
+    switch(facade){
+    case sbl::FacadeType::Solid:
+        return "solid";
+    case sbl::FacadeType::CurtainWall:
+        return "curtain";
+    case sbl::FacadeType::Recessed:
+        return "recessed";
+    case sbl::FacadeType::Screened:
+        return "screened";
+    case sbl::FacadeType::BriseSoleil:
+        return "brise";
+    default:
+        return "unknown";
+    }
+}
+
+void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng, BuildStats* stats)
 {
     float inset = cfg.sidewalk;
     float usableW = cfg.blockSizeX - inset * 2.0f;
@@ -218,29 +250,43 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         if(rng.Chance(cfg.parkChance)){
             Mesh park = BuildSlab({south,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
+            if(stats) stats->parkCount++;
         }else if(rng.Chance(cfg.parkingChance)){
             Mesh park = BuildSlab({south,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
+            if(stats) stats->parkingCount++;
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, sem, decisions);
+            std::cout << "Building " << plan.style
+                      << " floors=" << plan.totalFloors
+                      << " facade=" << FacadeLabel(plan.facadeType)
+                      << "\n";
             Mesh ms = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, ms);
+            if(stats) stats->buildingCount++;
         }
 
         if(rng.Chance(cfg.parkChance)){
             Mesh park = BuildSlab({north,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
+            if(stats) stats->parkCount++;
         }else if(rng.Chance(cfg.parkingChance)){
             Mesh park = BuildSlab({north,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
+            if(stats) stats->parkingCount++;
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, sem, decisions);
+            std::cout << "Building " << plan.style
+                      << " floors=" << plan.totalFloors
+                      << " facade=" << FacadeLabel(plan.facadeType)
+                      << "\n";
             Mesh mn = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mn);
+            if(stats) stats->buildingCount++;
         }
     }
 
@@ -252,29 +298,43 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         if(rng.Chance(cfg.parkChance)){
             Mesh park = BuildSlab({west,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
+            if(stats) stats->parkCount++;
         }else if(rng.Chance(cfg.parkingChance)){
             Mesh park = BuildSlab({west,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
+            if(stats) stats->parkingCount++;
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, sem, decisions);
+            std::cout << "Building " << plan.style
+                      << " floors=" << plan.totalFloors
+                      << " facade=" << FacadeLabel(plan.facadeType)
+                      << "\n";
             Mesh mw = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mw);
+            if(stats) stats->buildingCount++;
         }
 
         if(rng.Chance(cfg.parkChance)){
             Mesh park = BuildSlab({east,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
+            if(stats) stats->parkCount++;
         }else if(rng.Chance(cfg.parkingChance)){
             Mesh park = BuildSlab({east,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
+            if(stats) stats->parkingCount++;
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, sem, decisions);
+            std::cout << "Building " << plan.style
+                      << " floors=" << plan.totalFloors
+                      << " facade=" << FacadeLabel(plan.facadeType)
+                      << "\n";
             Mesh me = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, me);
+            if(stats) stats->buildingCount++;
         }
     }
 }
@@ -287,19 +347,28 @@ Mesh BuildCityMesh(const CityConfig& cfg)
     float totalH = cfg.blocksY * cfg.blockSizeY + (cfg.blocksY + 1) * cfg.roadWidth;
 
     Mesh city;
+    std::cout << "City build start blocks=" << cfg.blocksX << "x" << cfg.blocksY
+              << " seed=" << cfg.seed << "\n";
     AddRoads(city, cfg, totalW, totalH);
+    std::cout << "Roads generated\n";
 
     Rng rng(cfg.seed);
+    BuildStats stats;
 
     for(int by=0;by<cfg.blocksY;by++){
         for(int bx=0;bx<cfg.blocksX;bx++){
             float blockX = cfg.roadWidth + bx * (cfg.blockSizeX + cfg.roadWidth);
             float blockY = cfg.roadWidth + by * (cfg.blockSizeY + cfg.roadWidth);
 
-            AddLots(city, cfg, blockX, blockY);
-            AddBuildingsOnLots(city, cfg, blockX, blockY, rng);
+            AddLots(city, cfg, blockX, blockY, &stats);
+            AddBuildingsOnLots(city, cfg, blockX, blockY, rng, &stats);
         }
     }
 
+    std::cout << "City build done buildings=" << stats.buildingCount
+              << " parks=" << stats.parkCount
+              << " parking=" << stats.parkingCount
+              << " lotSlabs=" << stats.lotCount
+              << "\n";
     return city;
 }

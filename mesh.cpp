@@ -1,6 +1,7 @@
 #include "mesh.h"
 
 #include <algorithm>
+#include <cstdint>
 
 void AddQuad(Mesh& m, unsigned a, unsigned b, unsigned c, unsigned d)
 {
@@ -166,18 +167,37 @@ Mesh BuildCurtainWall(const Polygon2D& fp,
 
     float ao = std::max(0.6f, 1.0f - inset*0.15f);
 
+    auto hash32 = [](uint32_t x){
+        x ^= x >> 16;
+        x *= 0x7feb352dU;
+        x ^= x >> 15;
+        x *= 0x846ca68bU;
+        x ^= x >> 16;
+        return x;
+    };
+    auto hash01 = [&](uint32_t x){
+        return (hash32(x) & 0x00ffffff) / 16777215.0f;
+    };
+
     for(int i=0;i<n;i++){
         int j=(i+1)%n;
         Vec2 a=g.v[i], b=g.v[j];
         Vec2 dir = Normalize({b.x-a.x, b.y-a.y});
         float len = Length({b.x-a.x, b.y-a.y});
+        uint32_t edgeSeed = (uint32_t)i ^ (uint32_t)(len * 100.0f);
+        float panelVar = 0.85f + 0.30f * hash01(edgeSeed);
+        float mullionVar = 0.60f + 0.80f * hash01(edgeSeed ^ 0x9e3779b9U);
 
         float t = 0.0f;
         float u0 = 0.0f;
         bool isWindow = true;
+        int segIndex = 0;
 
         while(t < len){
-            float seg = isWindow ? panelWidth : mullionWidth;
+            float seg = isWindow ? panelWidth * panelVar : mullionWidth * mullionVar;
+            if(!isWindow && (segIndex % 3) == 2){
+                seg *= 1.6f;
+            }
             if(seg <= 0.0f){
                 seg = len - t;
             }
@@ -198,6 +218,7 @@ Mesh BuildCurtainWall(const Polygon2D& fp,
 
             t += segLen;
             u0 += segLen;
+            segIndex++;
             if(isWindow && mullionWidth > 0.0f){
                 isWindow = false;
             }else{

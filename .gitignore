@@ -7,3 +7,5 @@ build/
 
 # Generated assets
 *.obj
+*.glft
+*.bin

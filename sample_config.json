@@ -6,7 +6,7 @@
   "floorH": 3.6,
   "slabT": 0.75,
   "glassInset": 1.2,
-  "enablePilotis": true,
+  "enablePilotis": false,
   "pilotisHeight": 3.0,
   "finEvery": 2,
   "finThickness": 0.2,

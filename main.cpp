@@ -67,9 +67,6 @@ int main(int argc, char** argv)
             }
             float cwTop = std::min(z + 3 * cfg.floorH, bandTop);
             cwTop = std::min(cwTop, totalHeight - cfg.roofCapT);
-            if(cwTop >= totalHeight - cfg.roofCapT - 1e-3f){
-                continue;
-            }
             if(cwTop > z + cfg.slabT){
                 Polygon2D cwFp = OutsetFromCentroid(fp, -cfg.curtainInset);
                 Mesh cw = BuildCurtainWall(cwFp,

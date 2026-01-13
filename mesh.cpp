@@ -85,6 +85,10 @@ Mesh BuildSlab(const FloorSlab& s, Vec3 baseColor, float uvScale)
         if(area2 < 1e-6f){
             continue;
         }
+        Vec2 centroid{(pa.x + pb.x + pc.x) / 3.0f, (pa.y + pb.y + pc.y) / 3.0f};
+        if(!PointInPolygon(s.footprint, centroid)){
+            continue;
+        }
         m.i.insert(m.i.end(), {a,c,b}); // bottom
         m.i.insert(m.i.end(), {n+a,n+b,n+c}); // top
     }

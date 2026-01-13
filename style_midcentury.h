@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config.h"
+#include "semantics.h"
 #include "mesh.h"
 
-Mesh BuildMidcenturyBuilding(const Config& cfg);
+Mesh BuildMidcenturyBuilding(const sbl::BuildingPlan& plan);

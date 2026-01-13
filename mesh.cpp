@@ -81,6 +81,10 @@ static RoleStyle StyleForRole(SlabRole role)
         return {1.05f, 1.00f, 0.60f, 0.65f};
     case SlabRole::Roof:
         return {1.05f, 1.00f, 0.70f, 1.35f};
+    case SlabRole::Residential:
+        return {1.02f, 1.00f, 0.62f, 1.00f};
+    case SlabRole::Mechanical:
+        return {0.92f, 0.90f, 0.50f, 1.10f};
     case SlabRole::Office:
     default:
         return {1.00f, 1.00f, 0.60f, 1.00f};

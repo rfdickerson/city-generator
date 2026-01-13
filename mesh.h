@@ -20,7 +20,9 @@ enum class SlabRole {
     Podium,
     Public,
     Office,
+    Residential,
     Terrace,
+    Mechanical,
     Roof
 };
 

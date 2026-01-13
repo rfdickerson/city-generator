@@ -16,39 +16,88 @@ struct Footprints {
     Polygon2D towerBase;
 };
 
-Footprints ComputeFootprints(const Config& cfg)
+SlabRole ToMeshRole(sbl::SlabRole role)
+{
+    switch(role){
+    case sbl::SlabRole::Infrastructure:
+        return SlabRole::Infrastructure;
+    case sbl::SlabRole::Podium:
+        return SlabRole::Podium;
+    case sbl::SlabRole::Public:
+        return SlabRole::Public;
+    case sbl::SlabRole::Residential:
+        return SlabRole::Residential;
+    case sbl::SlabRole::Terrace:
+        return SlabRole::Terrace;
+    case sbl::SlabRole::Mechanical:
+        return SlabRole::Mechanical;
+    case sbl::SlabRole::Roof:
+        return SlabRole::Roof;
+    case sbl::SlabRole::Office:
+    default:
+        return SlabRole::Office;
+    }
+}
+
+sbl::SlabRole RoleForFloor(const sbl::BuildingPlan& plan, int floor)
+{
+    for(const auto& slab : plan.slabPlan){
+        if(floor >= slab.startFloor && floor < slab.startFloor + slab.floorCount){
+            return slab.role;
+        }
+    }
+    return sbl::SlabRole::Office;
+}
+
+bool AllowsCurtain(const sbl::BuildingPlan& plan)
+{
+    if(plan.fenestration == sbl::FenestrationPattern::None){
+        return false;
+    }
+    return plan.facadeType == sbl::FacadeType::CurtainWall ||
+           plan.facadeType == sbl::FacadeType::BriseSoleil ||
+           plan.facadeType == sbl::FacadeType::Screened;
+}
+
+bool AllowsBriseSoleil(const sbl::BuildingPlan& plan)
+{
+    return plan.facadeType == sbl::FacadeType::BriseSoleil;
+}
+
+Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
 {
     Footprints f;
-    f.baseRect = PlaceRectInLot(cfg.lot, cfg.lotShrink, cfg.lotSnap);
+    f.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap);
     f.base = f.baseRect;
-    if(cfg.useLShape){
-        f.base = MakeLShapeFootprint(f.baseRect, cfg.lCutX, cfg.lCutY);
+    if(plan.useLShape){
+        f.base = MakeLShapeFootprint(f.baseRect, plan.lCutX, plan.lCutY);
     }
     f.towerBase = f.base;
-    if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
-        f.towerBase = f.base.Inset(cfg.towerInset);
+    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
+        f.towerBase = f.base.Inset(plan.towerInset);
     }
     return f;
 }
 
-float ComputePilotisHeight(const Config& cfg)
+float ComputePilotisHeight(const sbl::BuildingPlan& plan)
 {
-    return cfg.enablePilotis ? cfg.pilotisHeight : 0.0f;
+    return plan.enablePilotis ? plan.pilotisHeight : 0.0f;
 }
 
-void AddLotMesh(Mesh& out, const Config& cfg)
+void AddLotMesh(Mesh& out, const sbl::BuildingPlan& plan)
 {
-    if(!cfg.showLot){
+    if(!plan.showLot){
         return;
     }
-    Mesh lotMesh = BuildSlab({cfg.lot,-0.25f,0.25f},cfg.lotFill,0.03f, SlabRole::Public);
+    Mesh lotMesh = BuildSlab({plan.lot,-0.25f,0.25f},plan.lotFill,0.03f, SlabRole::Public);
     Append(out, lotMesh);
 }
 
-void AddFloorSlab(Mesh& out, const Polygon2D& fp, float z, const Config& cfg, bool isTop)
+void AddFloorSlab(Mesh& out, const Polygon2D& fp, float z, const sbl::BuildingPlan& plan, bool isTop, int floor)
 {
-    Vec3 slabColor = isTop ? cfg.roofDeck : cfg.concrete;
-    Mesh slab = BuildSlab({fp,z,cfg.slabT},slabColor,0.02f, SlabRole::Office);
+    Vec3 slabColor = isTop ? plan.roofDeck : plan.concrete;
+    SlabRole role = ToMeshRole(RoleForFloor(plan, floor));
+    Mesh slab = BuildSlab({fp,z,plan.slabT},slabColor,0.02f, role);
     Append(out, slab);
 }
 
@@ -57,12 +106,12 @@ bool AddCurtainWallBand(Mesh& out,
                         float z,
                         float bandTop,
                         float totalHeight,
-                        const Config& cfg)
+                        const sbl::BuildingPlan& plan)
 {
-    float bandFloors = std::max(1, cfg.curtainBandFloors);
-    float cwTop = std::min(z + bandFloors * cfg.floorH, bandTop);
-    cwTop = std::min(cwTop, totalHeight - cfg.roofCapT);
-    if(cwTop <= z + cfg.slabT){
+    float bandFloors = std::max(1, plan.curtainBandFloors);
+    float cwTop = std::min(z + bandFloors * plan.floorH, bandTop);
+    cwTop = std::min(cwTop, totalHeight - plan.roofCapT);
+    if(cwTop <= z + plan.slabT){
         return false;
     }
     float minEdge = std::numeric_limits<float>::max();
@@ -72,7 +121,7 @@ bool AddCurtainWallBand(Mesh& out,
         Vec2 b = fp.v[(i+1)%n];
         minEdge = std::min(minEdge, Length({b.x-a.x, b.y-a.y}));
     }
-    float inset = std::min(cfg.curtainInset, minEdge * 0.35f);
+    float inset = std::min(plan.curtainInset, minEdge * 0.35f);
     Polygon2D cwFp = fp.Inset(inset);
     float areaBase = std::fabs(SignedArea(fp.v));
     float areaCw = std::fabs(SignedArea(cwFp.v));
@@ -80,11 +129,11 @@ bool AddCurtainWallBand(Mesh& out,
         cwFp = fp;
     }
     Mesh cw = BuildCurtainWall(cwFp,
-                               z+cfg.slabT,
+                               z+plan.slabT,
                                cwTop,
                                0.0f,
-                               cfg.window,
-                               cfg.concrete,
+                               plan.window,
+                               plan.concrete,
                                2.2f,
                                0.35f,
                                0.15f);
@@ -92,28 +141,31 @@ bool AddCurtainWallBand(Mesh& out,
     return true;
 }
 
-void AddBriseSoleil(Mesh& out, const Polygon2D& fp, float z, int f, const Config& cfg)
+void AddBriseSoleil(Mesh& out, const Polygon2D& fp, float z, int f, const sbl::BuildingPlan& plan)
 {
-    if(cfg.finEvery <= 0 || (f + 1) % cfg.finEvery != 0 || f == cfg.floors - 1){
+    if(!AllowsBriseSoleil(plan)){
         return;
     }
-    float finZ = z + cfg.floorH - cfg.finThickness * 0.5f;
-    Polygon2D finFp = OutsetFromCentroid(fp, cfg.finProjection);
-    Mesh fin = BuildSlab({finFp,finZ,cfg.finThickness},cfg.concrete,0.02f, SlabRole::Terrace);
+    if(plan.finEvery <= 0 || (f + 1) % plan.finEvery != 0 || f == plan.totalFloors - 1){
+        return;
+    }
+    float finZ = z + plan.floorH - plan.finThickness * 0.5f;
+    Polygon2D finFp = OutsetFromCentroid(fp, plan.finProjection);
+    Mesh fin = BuildSlab({finFp,finZ,plan.finThickness},plan.concrete,0.02f, SlabRole::Terrace);
     Append(out, fin);
 }
 
-void AddPodiumRoof(Mesh& out, const Polygon2D& base, float pilotisHeight, const Config& cfg)
+void AddPodiumRoof(Mesh& out, const Polygon2D& base, float pilotisHeight, const sbl::BuildingPlan& plan)
 {
-    if(!cfg.usePodiumTower || cfg.useLShape || cfg.podiumFloors <= 0 || cfg.podiumFloors >= cfg.floors){
+    if(!plan.usePodiumTower || plan.useLShape || plan.podiumFloors <= 0 || plan.podiumFloors >= plan.totalFloors){
         return;
     }
-    float podiumZ = pilotisHeight + cfg.podiumFloors * cfg.floorH - 0.02f;
-    Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},cfg.concrete,0.02f, SlabRole::Podium);
+    float podiumZ = pilotisHeight + plan.podiumFloors * plan.floorH - 0.02f;
+    Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},plan.concrete,0.02f, SlabRole::Podium);
     Append(out, podiumRoof);
 }
 
-void AddPilotis(Mesh& out, const Polygon2D& baseRect, const Polygon2D& base, const Config& cfg, float pilotisHeight)
+void AddPilotis(Mesh& out, const Polygon2D& baseRect, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
 {
     if(pilotisHeight <= 0.0f){
         return;
@@ -138,72 +190,72 @@ void AddPilotis(Mesh& out, const Polygon2D& baseRect, const Polygon2D& base, con
             if(!PointInPolygon(base, c)){
                 continue;
             }
-            AddBox(out, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, cfg.concrete);
+            AddBox(out, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, plan.concrete);
         }
     }
 }
 
-void AddRoofCap(Mesh& out, const Polygon2D& capBase, float totalHeight, const Config& cfg)
+void AddRoofCap(Mesh& out, const Polygon2D& capBase, float totalHeight, const sbl::BuildingPlan& plan)
 {
-    Polygon2D capFp = cfg.useLShape ? capBase : OutsetFromCentroid(capBase, cfg.roofCapOverhang);
-    float capZ = totalHeight - cfg.roofCapT;
-    Mesh cap = BuildSlab({capFp,capZ,cfg.roofCapT},cfg.concrete,0.02f, SlabRole::Roof);
+    Polygon2D capFp = plan.useLShape ? capBase : OutsetFromCentroid(capBase, plan.roofCapOverhang);
+    float capZ = totalHeight - plan.roofCapT;
+    Mesh cap = BuildSlab({capFp,capZ,plan.roofCapT},plan.concrete,0.02f, SlabRole::Roof);
     Append(out, cap);
 }
 
-void AddRoofDeck(Mesh& out, const Polygon2D& deckBase, float totalHeight, const Config& cfg)
+void AddRoofDeck(Mesh& out, const Polygon2D& deckBase, float totalHeight, const sbl::BuildingPlan& plan)
 {
-    Polygon2D deckFp = cfg.useLShape ? deckBase : OutsetFromCentroid(deckBase, -cfg.roofDeckInset);
+    Polygon2D deckFp = plan.useLShape ? deckBase : OutsetFromCentroid(deckBase, -plan.roofDeckInset);
     float deckZ = totalHeight + 0.02f;
-    Mesh deck = BuildSlab({deckFp,deckZ,cfg.roofDeckT},cfg.roofDeck,0.02f, SlabRole::Terrace);
+    Mesh deck = BuildSlab({deckFp,deckZ,plan.roofDeckT},plan.roofDeck,0.02f, SlabRole::Terrace);
     Append(out, deck);
 }
 
 } // namespace
 
-Mesh BuildMidcenturyBuilding(const Config& cfg)
+Mesh BuildMidcenturyBuilding(const sbl::BuildingPlan& plan)
 {
-    Footprints fp = ComputeFootprints(cfg);
-    float pilotisHeight = ComputePilotisHeight(cfg);
-    float totalHeight = pilotisHeight + cfg.floors * cfg.floorH;
+    Footprints fp = ComputeFootprints(plan);
+    float pilotisHeight = ComputePilotisHeight(plan);
+    float totalHeight = pilotisHeight + plan.totalFloors * plan.floorH;
 
     Mesh building;
-    AddLotMesh(building, cfg);
+    AddLotMesh(building, plan);
 
     bool addedCurtain = false;
-    for(int f=0;f<cfg.floors;f++){
+    for(int f=0;f<plan.totalFloors;f++){
         Polygon2D floorFp = fp.base;
-        if(cfg.usePodiumTower && !cfg.useLShape && f >= cfg.podiumFloors){
+        if(plan.usePodiumTower && !plan.useLShape && f >= plan.podiumFloors){
             floorFp = fp.towerBase;
         }
 
-        float z = pilotisHeight + f * cfg.floorH;
-        AddFloorSlab(building, floorFp, z, cfg, f == cfg.floors - 1);
+        float z = pilotisHeight + f * plan.floorH;
+        AddFloorSlab(building, floorFp, z, plan, f == plan.totalFloors - 1, f);
 
-        if(cfg.curtainEvery > 0 && f % cfg.curtainEvery == 0){
+        if(AllowsCurtain(plan) && plan.curtainEvery > 0 && f % plan.curtainEvery == 0){
             float bandTop = totalHeight;
-            if(cfg.usePodiumTower && !cfg.useLShape && f < cfg.podiumFloors){
-                bandTop = pilotisHeight + cfg.podiumFloors * cfg.floorH;
+            if(plan.usePodiumTower && !plan.useLShape && f < plan.podiumFloors){
+                bandTop = pilotisHeight + plan.podiumFloors * plan.floorH;
             }
-            if(AddCurtainWallBand(building, floorFp, z, bandTop, totalHeight, cfg)){
+            if(AddCurtainWallBand(building, floorFp, z, bandTop, totalHeight, plan)){
                 addedCurtain = true;
             }
         }
 
-        AddBriseSoleil(building, floorFp, z, f, cfg);
+        AddBriseSoleil(building, floorFp, z, f, plan);
     }
 
-    if(!addedCurtain){
-        float z0 = pilotisHeight + cfg.slabT;
-        float z1 = totalHeight - cfg.roofCapT;
+    if(!addedCurtain && AllowsCurtain(plan)){
+        float z0 = pilotisHeight + plan.slabT;
+        float z1 = totalHeight - plan.roofCapT;
         if(z1 > z0 + 0.01f){
-            Polygon2D cwFp = OutsetFromCentroid(fp.base, -cfg.curtainInset);
+            Polygon2D cwFp = OutsetFromCentroid(fp.base, -plan.curtainInset);
             Mesh cw = BuildCurtainWall(cwFp,
                                        z0,
                                        z1,
                                        0.0f,
-                                       cfg.window,
-                                       cfg.concrete,
+                                       plan.window,
+                                       plan.concrete,
                                        2.2f,
                                        0.35f,
                                        0.15f);
@@ -211,20 +263,20 @@ Mesh BuildMidcenturyBuilding(const Config& cfg)
         }
     }
 
-    AddPodiumRoof(building, fp.base, pilotisHeight, cfg);
-    AddPilotis(building, fp.baseRect, fp.base, cfg, pilotisHeight);
+    AddPodiumRoof(building, fp.base, pilotisHeight, plan);
+    AddPilotis(building, fp.baseRect, fp.base, plan, pilotisHeight);
 
     Polygon2D capBase = fp.base;
-    if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
+    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
         capBase = fp.towerBase;
     }
-    AddRoofCap(building, capBase, totalHeight, cfg);
+    AddRoofCap(building, capBase, totalHeight, plan);
 
     Polygon2D deckBase = fp.base;
-    if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
+    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
         deckBase = fp.towerBase;
     }
-    AddRoofDeck(building, deckBase, totalHeight, cfg);
+    AddRoofDeck(building, deckBase, totalHeight, plan);
 
     return building;
 }

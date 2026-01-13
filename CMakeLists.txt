@@ -12,6 +12,8 @@ add_executable(buildings
     geom_ops.cpp
     mesh.h
     mesh.cpp
+    semantics.h
+    semantics.cpp
     style_midcentury.h
     style_midcentury.cpp
     style_brutalist.h
@@ -37,6 +39,8 @@ add_executable(city_builder
     geom_ops.cpp
     mesh.h
     mesh.cpp
+    semantics.h
+    semantics.cpp
     style_midcentury.h
     style_midcentury.cpp
     style_brutalist.h

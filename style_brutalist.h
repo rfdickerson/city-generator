@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config.h"
+#include "semantics.h"
 #include "mesh.h"
 
-Mesh BuildBrutalistBuilding(const Config& cfg);
+Mesh BuildBrutalistBuilding(const sbl::BuildingPlan& plan);

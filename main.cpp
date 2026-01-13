@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "io.h"
+#include "semantics.h"
 #include "style_midcentury.h"
 #include "style_brutalist.h"
 
@@ -15,11 +16,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    sbl::BuildingPlan plan = sbl::BuildPlanFromConfig(cfg);
     Mesh building;
-    if(cfg.style == "brutalist"){
-        building = BuildBrutalistBuilding(cfg);
+    if(plan.style == "brutalist"){
+        building = BuildBrutalistBuilding(plan);
     }else{
-        building = BuildMidcenturyBuilding(cfg);
+        building = BuildMidcenturyBuilding(plan);
     }
 
     WriteOBJ("simcity_midcentury_office.obj",building);

@@ -5,6 +5,7 @@
 #include "config.h"
 #include "geom_ops.h"
 #include "geometry.h"
+#include "semantics.h"
 #include "style_midcentury.h"
 #include "style_brutalist.h"
 
@@ -35,6 +36,117 @@ Polygon2D MakeRect(float x, float y, float w, float h)
 {
     Vec2 center{x + w * 0.5f, y + h * 0.5f};
     return MakeRectangle(center, w, h, 0.0f);
+}
+
+struct SemanticDecisions {
+    int floors = 0;
+    bool enablePilotis = false;
+    bool usePodiumTower = false;
+    int podiumFloors = 0;
+    float towerInset = 0.0f;
+    bool useLShape = false;
+    float lCutX = 0.0f;
+    float lCutY = 0.0f;
+    std::string style;
+};
+
+static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng& rng,
+                                                     SemanticDecisions* decisions)
+{
+    SemanticDecisions local;
+    if(!decisions){
+        decisions = &local;
+    }
+
+    decisions->style = "midcentury";
+    if(!city.styles.empty()){
+        int idx = rng.RangeInt(0, (int)city.styles.size() - 1);
+        decisions->style = city.styles[idx];
+    }
+
+    int lowMax = std::max(city.minFloors, std::min(city.lowMaxFloors, city.maxFloors));
+    decisions->floors = rng.RangeInt(city.minFloors, city.maxFloors);
+    if(!rng.Chance(city.tallChance)){
+        decisions->floors = rng.RangeInt(city.minFloors, lowMax);
+    }
+
+    decisions->enablePilotis = city.disablePilotis ? false : rng.Chance(city.pilotisChance);
+
+    decisions->useLShape = rng.Chance(city.lShapeChance);
+    if(decisions->style == "midcentury"){
+        decisions->useLShape = false;
+    }
+    if(decisions->useLShape){
+        decisions->lCutX = rng.Range(4.0f, 8.0f);
+        decisions->lCutY = rng.Range(3.0f, 7.0f);
+    }
+
+    decisions->usePodiumTower = false;
+    decisions->podiumFloors = DefaultConfig().podiumFloors;
+    decisions->towerInset = DefaultConfig().towerInset;
+
+    sbl::BuildingSemantics sem{};
+    sem.use = sbl::BuildingUse::Office;
+    sem.urbanRole = sbl::UrbanRole::Infill;
+    sem.placement = sbl::SitePlacement::CenteredObject;
+    sem.ground = decisions->enablePilotis ? sbl::GroundInterface::Permeable : sbl::GroundInterface::Active;
+    sem.massing = decisions->usePodiumTower ? sbl::MassingType::PodiumWithTower : sbl::MassingType::Tower;
+    sem.hierarchy = decisions->usePodiumTower ? sbl::VerticalHierarchy::PodiumDominant : sbl::VerticalHierarchy::Uniform;
+    sem.tone = sbl::VisualTone::Neutral;
+    sem.contrast = sbl::ContrastLevel::Medium;
+    if(decisions->enablePilotis){
+        sem.env.push_back(sbl::EnvironmentalStrategy::FloodResilient);
+    }
+
+    return sem;
+}
+
+static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polygon2D& lot,
+                                             const sbl::BuildingSemantics& sem,
+                                             const SemanticDecisions& decisions)
+{
+    Config defaults = DefaultConfig();
+
+    sbl::BuildingPlan plan{};
+    plan.semantics = sem;
+    plan.lot = lot;
+    plan.style = decisions.style;
+    plan.lotShrink = city.lotSetback;
+    plan.lotSnap = 0.5f;
+    plan.totalFloors = decisions.floors;
+    plan.floorH = defaults.floorH;
+    plan.slabT = defaults.slabT;
+    plan.glassInset = defaults.glassInset;
+    plan.enablePilotis = (sem.ground == sbl::GroundInterface::Permeable);
+    plan.pilotisHeight = defaults.pilotisHeight;
+    plan.usePodiumTower = decisions.usePodiumTower;
+    plan.podiumFloors = decisions.podiumFloors;
+    plan.towerInset = decisions.towerInset;
+    plan.useLShape = decisions.useLShape;
+    plan.lCutX = decisions.lCutX;
+    plan.lCutY = decisions.lCutY;
+    plan.finEvery = defaults.finEvery;
+    plan.finThickness = defaults.finThickness;
+    plan.finProjection = defaults.finProjection;
+    plan.roofCapT = defaults.roofCapT;
+    plan.roofCapOverhang = defaults.roofCapOverhang;
+    plan.roofDeckT = defaults.roofDeckT;
+    plan.roofDeckInset = defaults.roofDeckInset;
+    plan.curtainInset = defaults.curtainInset;
+    plan.curtainEvery = 1;
+    plan.curtainBandFloors = 1;
+    plan.facadeType = (plan.style == "brutalist") ? sbl::FacadeType::Solid : sbl::FacadeType::BriseSoleil;
+    plan.fenestration = (plan.style == "brutalist") ? sbl::FenestrationPattern::Punched
+                                                    : sbl::FenestrationPattern::ContinuousBand;
+    plan.concrete = defaults.concrete;
+    plan.window = defaults.window;
+    plan.roofDeck = defaults.roofDeck;
+    plan.lotFill = defaults.lotFill;
+    plan.showLot = false;
+
+    plan.slabPlan = sbl::BuildDefaultSlabPlan(plan.totalFloors, plan.usePodiumTower, plan.podiumFloors);
+
+    return plan;
 }
 
 void AddRoads(Mesh& out, const CityConfig& cfg, float totalW, float totalH)
@@ -89,40 +201,6 @@ void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by)
     }
 }
 
-Config BuildBuildingConfig(const CityConfig& city, const Polygon2D& lot, Rng& rng)
-{
-    Config cfg = DefaultConfig();
-    cfg.lot = lot;
-    cfg.lotShrink = city.lotSetback;
-    cfg.lotSnap = 0.5f;
-    cfg.showLot = false;
-
-    if(!city.styles.empty()){
-        int idx = rng.RangeInt(0, (int)city.styles.size() - 1);
-        cfg.style = city.styles[idx];
-    }
-
-    cfg.floors = rng.RangeInt(city.minFloors, city.maxFloors);
-    int lowMax = std::max(city.minFloors, std::min(city.lowMaxFloors, city.maxFloors));
-    if(!rng.Chance(city.tallChance)){
-        cfg.floors = rng.RangeInt(city.minFloors, lowMax);
-    }
-    cfg.enablePilotis = city.disablePilotis ? false : rng.Chance(city.pilotisChance);
-    cfg.useLShape = rng.Chance(city.lShapeChance);
-    if(cfg.style == "midcentury"){
-        cfg.useLShape = false;
-    }
-    cfg.curtainEvery = 1;
-    cfg.curtainBandFloors = 1;
-
-    if(cfg.useLShape){
-        cfg.lCutX = rng.Range(4.0f, 8.0f);
-        cfg.lCutY = rng.Range(3.0f, 7.0f);
-    }
-
-    return cfg;
-}
-
 void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng)
 {
     float inset = cfg.sidewalk;
@@ -144,8 +222,10 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh park = BuildSlab({south,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
         }else{
-            Config cs = BuildBuildingConfig(cfg, south, rng);
-            Mesh ms = (cs.style == "brutalist") ? BuildBrutalistBuilding(cs) : BuildMidcenturyBuilding(cs);
+            SemanticDecisions decisions;
+            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, sem, decisions);
+            Mesh ms = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, ms);
         }
 
@@ -156,8 +236,10 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh park = BuildSlab({north,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
         }else{
-            Config cn = BuildBuildingConfig(cfg, north, rng);
-            Mesh mn = (cn.style == "brutalist") ? BuildBrutalistBuilding(cn) : BuildMidcenturyBuilding(cn);
+            SemanticDecisions decisions;
+            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, sem, decisions);
+            Mesh mn = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mn);
         }
     }
@@ -174,8 +256,10 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh park = BuildSlab({west,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
         }else{
-            Config cw = BuildBuildingConfig(cfg, west, rng);
-            Mesh mw = (cw.style == "brutalist") ? BuildBrutalistBuilding(cw) : BuildMidcenturyBuilding(cw);
+            SemanticDecisions decisions;
+            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, sem, decisions);
+            Mesh mw = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mw);
         }
 
@@ -186,8 +270,10 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh park = BuildSlab({east,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
         }else{
-            Config ce = BuildBuildingConfig(cfg, east, rng);
-            Mesh me = (ce.style == "brutalist") ? BuildBrutalistBuilding(ce) : BuildMidcenturyBuilding(ce);
+            SemanticDecisions decisions;
+            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, sem, decisions);
+            Mesh me = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, me);
         }
     }

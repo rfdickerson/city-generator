@@ -551,7 +551,8 @@ int main()
     const bool  usePodiumTower = false;
     const int   podiumFloors   = 2;
     const float towerInset     = 2.5f;
-    const float roofCapT       = 0.20f;
+    const float roofCapT       = 0.60f;
+    const float roofCapOverhang= 0.40f;
 
     // --- Palette (cheery, graphic) ---
     Vec3 concrete = {0.55f,0.56f,0.57f};
@@ -671,8 +672,9 @@ int main()
         if(usePodiumTower && podiumFloors < floors){
             capBase = towerBase;
         }
+        Polygon2D capFp = capBase.Inset(-roofCapOverhang);
         float capZ = totalHeight - roofCapT;
-        Mesh cap = BuildSlab({capBase,capZ,roofCapT},concrete,0.02f);
+        Mesh cap = BuildSlab({capFp,capZ,roofCapT},concrete,0.02f);
         for(auto& i:cap.i) i+=offset;
         building.v.insert(building.v.end(),cap.v.begin(),cap.v.end());
         building.i.insert(building.i.end(),cap.i.begin(),cap.i.end());

@@ -1,741 +1,59 @@
-#include <vector>
-#include <fstream>
-#include <cmath>
 #include <iostream>
-#include <limits>
-#include <cstdint>
-#include <string>
-#include <algorithm>
 
-// ============================================================
-// Basic Math
-// ============================================================
+#include "config.h"
+#include "geometry.h"
+#include "mesh.h"
+#include "io.h"
 
-struct Vec2 { float x, y; };
-struct Vec3 { float x, y, z; };
-struct Vec4 { float r, g, b, a; };
-
-Vec2 operator+(Vec2 a, Vec2 b){ return {a.x+b.x, a.y+b.y}; }
-Vec2 operator-(Vec2 a, Vec2 b){ return {a.x-b.x, a.y-b.y}; }
-Vec2 operator*(Vec2 a, float s){ return {a.x*s, a.y*s}; }
-
-float Dot(Vec2 a, Vec2 b){ return a.x*b.x + a.y*b.y; }
-float Length(Vec2 v){ return std::sqrt(v.x*v.x + v.y*v.y); }
-Vec2 Normalize(Vec2 v){ float len = Length(v); return {v.x/len, v.y/len}; }
-Vec2 Perp(Vec2 v){ return {-v.y, v.x}; }
-float Cross(Vec2 a, Vec2 b){ return a.x*b.y - a.y*b.x; }
-
-float SignedArea(const std::vector<Vec2>& v)
+int main(int argc, char** argv)
 {
-    float a = 0.0f;
-    int n = (int)v.size();
-    for(int i=0;i<n;i++){
-        const Vec2& p = v[i];
-        const Vec2& q = v[(i+1)%n];
-        a += p.x * q.y - q.x * p.y;
+    Config cfg;
+    std::string err;
+    const char* configPath = (argc > 1) ? argv[1] : nullptr;
+    if(!LoadConfig(configPath, &cfg, &err)){
+        std::cerr << "Failed to load config: " << err << "\n";
+        return 1;
     }
-    return 0.5f * a;
-}
-
-bool PointInTri(Vec2 p, Vec2 a, Vec2 b, Vec2 c, float sign, float eps)
-{
-    float c0 = Cross({b.x-a.x, b.y-a.y}, {p.x-a.x, p.y-a.y}) * sign;
-    float c1 = Cross({c.x-b.x, c.y-b.y}, {p.x-b.x, p.y-b.y}) * sign;
-    float c2 = Cross({a.x-c.x, a.y-c.y}, {p.x-c.x, p.y-c.y}) * sign;
-    return c0 >= -eps && c1 >= -eps && c2 >= -eps;
-}
-
-std::vector<unsigned> TriangulateCCW(const std::vector<Vec2>& v)
-{
-    std::vector<unsigned> out;
-    int n = (int)v.size();
-    if(n < 3){
-        return out;
-    }
-
-    std::vector<int> idx(n);
-    for(int i=0;i<n;i++) idx[i]=i;
-
-    float sign = (SignedArea(v) >= 0.0f) ? 1.0f : -1.0f;
-    const float eps = 1e-5f;
-    int guard = 0;
-    while(idx.size() > 2 && guard++ < n*n){
-        bool clipped = false;
-        int m = (int)idx.size();
-        for(int i=0;i<m;i++){
-            int i0 = idx[(i-1+m)%m];
-            int i1 = idx[i];
-            int i2 = idx[(i+1)%m];
-
-            Vec2 a = v[i0];
-            Vec2 b = v[i1];
-            Vec2 c = v[i2];
-
-            if(Cross({b.x-a.x, b.y-a.y}, {c.x-b.x, c.y-b.y}) * sign <= eps){
-                continue;
-            }
-
-            bool hasInside = false;
-            for(int j=0;j<m;j++){
-                int vi = idx[j];
-                if(vi==i0 || vi==i1 || vi==i2) continue;
-                if(PointInTri(v[vi], a, b, c, sign, eps)){
-                    hasInside = true;
-                    break;
-                }
-            }
-            if(hasInside) continue;
-
-            out.push_back((unsigned)i0);
-            out.push_back((unsigned)i1);
-            out.push_back((unsigned)i2);
-            idx.erase(idx.begin()+i);
-            clipped = true;
-            break;
-        }
-        if(!clipped){
-            break;
-        }
-    }
-    return out;
-}
-
-
-// ============================================================
-// Polygon (convex, CCW)
-// ============================================================
-
-struct Polygon2D {
-    std::vector<Vec2> v;
-
-    Polygon2D Inset(float d) const {
-        int n = (int)v.size();
-        std::vector<Vec2> out(n);
-
-        for(int i=0;i<n;i++){
-            Vec2 pPrev = v[(i-1+n)%n];
-            Vec2 pCurr = v[i];
-            Vec2 pNext = v[(i+1)%n];
-
-            Vec2 e0 = Normalize({pCurr.x-pPrev.x, pCurr.y-pPrev.y});
-            Vec2 e1 = Normalize({pNext.x-pCurr.x, pNext.y-pCurr.y});
-
-            // CCW polygon: left normals point inward.
-            Vec2 n0 = Perp(e0);
-            Vec2 n1 = Perp(e1);
-
-            Vec2 l0p = pCurr + n0*d;
-            Vec2 l1p = pCurr + n1*d;
-
-            float denom = Cross(e0, e1);
-            if(std::fabs(denom) < 1e-6f){
-                out[i] = l0p;
-                continue;
-            }
-
-            float t = Cross({l1p.x-l0p.x, l1p.y-l0p.y}, e1) / denom;
-            out[i] = {l0p.x + e0.x*t, l0p.y + e0.y*t};
-        }
-        return {out};
-    }
-};
-
-Vec2 Centroid(const Polygon2D& p)
-{
-    Vec2 c{0,0};
-    for(const auto& v : p.v){
-        c = c + v;
-    }
-    float inv = 1.0f / (float)p.v.size();
-    return c * inv;
-}
-
-bool PointInConvexCCW(const Polygon2D& poly, Vec2 p)
-{
-    int n = (int)poly.v.size();
-    for(int i=0;i<n;i++){
-        Vec2 a = poly.v[i];
-        Vec2 b = poly.v[(i+1)%n];
-        Vec2 ab = {b.x-a.x, b.y-a.y};
-        Vec2 ap = {p.x-a.x, p.y-a.y};
-        if(Cross(ab, ap) < 0.0f){
-            return false;
-        }
-    }
-    return true;
-}
-
-Polygon2D ScaleFromCentroid(const Polygon2D& p, float scale)
-{
-    Vec2 c = Centroid(p);
-    Polygon2D out = p;
-    for(auto& v : out.v){
-        v = c + (v - c) * scale;
-    }
-    return out;
-}
-
-Polygon2D OutsetFromCentroid(const Polygon2D& p, float delta)
-{
-    Vec2 c = Centroid(p);
-    float avg = 0.0f;
-    for(const auto& v : p.v){
-        avg += Length(v - c);
-    }
-    avg = (p.v.empty()) ? 0.0f : avg / (float)p.v.size();
-    if(avg <= 1e-4f){
-        return p;
-    }
-    float scale = (avg + delta) / avg;
-    if(scale < 0.05f){
-        scale = 0.05f;
-    }
-    return ScaleFromCentroid(p, scale);
-}
-
-// ============================================================
-// OBB (2D, minimal area)
-// ============================================================
-
-struct OBB2D {
-    Vec2 center;
-    Vec2 axisX;
-    Vec2 axisY;
-    float halfX;
-    float halfY;
-};
-
-OBB2D ComputeOBB(const Polygon2D& poly)
-{
-    int n = (int)poly.v.size();
-    if(n < 2){
-        return {{0,0},{1,0},{0,1},0,0};
-    }
-
-    float bestArea = std::numeric_limits<float>::max();
-    OBB2D best = {{0,0},{1,0},{0,1},0,0};
-
-    for(int i=0;i<n;i++){
-        Vec2 p0 = poly.v[i];
-        Vec2 p1 = poly.v[(i+1)%n];
-        Vec2 edge = Normalize({p1.x-p0.x, p1.y-p0.y});
-        Vec2 axisX = edge;
-        Vec2 axisY = Perp(axisX);
-
-        float minU = std::numeric_limits<float>::max();
-        float maxU = -std::numeric_limits<float>::max();
-        float minV = std::numeric_limits<float>::max();
-        float maxV = -std::numeric_limits<float>::max();
-
-        for(const auto& p : poly.v){
-            float u = Dot(p, axisX);
-            float v = Dot(p, axisY);
-            minU = std::min(minU, u);
-            maxU = std::max(maxU, u);
-            minV = std::min(minV, v);
-            maxV = std::max(maxV, v);
-        }
-
-        float area = (maxU - minU) * (maxV - minV);
-        if(area < bestArea){
-            bestArea = area;
-            float midU = (minU + maxU) * 0.5f;
-            float midV = (minV + maxV) * 0.5f;
-            Vec2 center = axisX * midU + axisY * midV;
-            best = {center, axisX, axisY, (maxU - minU) * 0.5f, (maxV - minV) * 0.5f};
-        }
-    }
-
-    return best;
-}
-
-Polygon2D PlaceRectInLot(const Polygon2D& lot,
-                         float shrink,
-                         float snapStep)
-{
-    OBB2D obb = ComputeOBB(lot);
-    Vec2 center = Centroid(lot);
-
-    float halfX = std::max(0.0f, obb.halfX - shrink);
-    float halfY = std::max(0.0f, obb.halfY - shrink);
-
-    if(snapStep > 0.0f){
-        halfX = std::floor(halfX / snapStep) * snapStep;
-        halfY = std::floor(halfY / snapStep) * snapStep;
-    }
-
-    auto cornersInside = [&](float hx, float hy){
-        Vec2 ax = obb.axisX * hx;
-        Vec2 ay = obb.axisY * hy;
-        Vec2 c0 = center + ax + ay;
-        Vec2 c1 = center + ax - ay;
-        Vec2 c2 = center - ax - ay;
-        Vec2 c3 = center - ax + ay;
-        return PointInConvexCCW(lot, c0) &&
-               PointInConvexCCW(lot, c1) &&
-               PointInConvexCCW(lot, c2) &&
-               PointInConvexCCW(lot, c3);
-    };
-
-    float step = snapStep > 0.0f ? snapStep : 0.25f;
-    int guard = 0;
-    while(guard++ < 200 && !cornersInside(halfX, halfY)){
-        halfX = std::max(0.0f, halfX - step);
-        halfY = std::max(0.0f, halfY - step);
-        if(halfX <= 0.0f || halfY <= 0.0f){
-            break;
-        }
-    }
-
-    Vec2 ax = obb.axisX * halfX;
-    Vec2 ay = obb.axisY * halfY;
-    // CCW rectangle so inset operations move inward.
-    Polygon2D rect {{
-        center + ax + ay,
-        center - ax + ay,
-        center - ax - ay,
-        center + ax - ay
-    }};
-
-    return rect;
-}
-
-Polygon2D MakeLShapeFootprint(const Polygon2D& baseRect,
-                              float cutX,
-                              float cutY)
-{
-    Vec2 center = Centroid(baseRect);
-    Vec2 axisX = Normalize({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
-    Vec2 axisY = Normalize({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
-    float halfX = 0.5f * Length({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
-    float halfY = 0.5f * Length({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
-
-    float cx = std::min(std::max(cutX, 0.0f), halfX - 0.5f);
-    float cy = std::min(std::max(cutY, 0.0f), halfY - 0.5f);
-
-    auto P = [&](float u, float v){
-        return center + axisX * u + axisY * v;
-    };
-
-    Polygon2D l {{
-        P(+halfX, +halfY - cy),
-        P(+halfX, -halfY),
-        P(-halfX, -halfY),
-        P(-halfX, +halfY),
-        P(+halfX - cx, +halfY),
-        P(+halfX - cx, +halfY - cy)
-    }};
-    return l;
-}
-
-// ============================================================
-// Mesh
-// ============================================================
-
-struct Vertex {
-    Vec3 pos;
-    Vec4 color; // RGB = base color, A = AO
-    Vec2 uv;
-};
-
-struct Mesh {
-    std::vector<Vertex> v;
-    std::vector<unsigned> i;
-};
-
-void AddQuad(Mesh& m,
-             unsigned a,unsigned b,
-             unsigned c,unsigned d)
-{
-    m.i.insert(m.i.end(), {a,b,c, a,c,d});
-}
-
-void AddBox(Mesh& m,
-            Vec2 center,
-            Vec2 axisX,
-            Vec2 axisY,
-            float halfX,
-            float halfY,
-            float z0,
-            float z1,
-            Vec3 color)
-{
-    Vec2 ax = axisX * halfX;
-    Vec2 ay = axisY * halfY;
-
-    Vec2 c0 = center + ax + ay;
-    Vec2 c1 = center - ax + ay;
-    Vec2 c2 = center - ax - ay;
-    Vec2 c3 = center + ax - ay;
-
-    unsigned base = (unsigned)m.v.size();
-    Vec2 uv0{0,0};
-
-    m.v.push_back({{c0.x,z0,c0.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c1.x,z0,c1.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c2.x,z0,c2.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c3.x,z0,c3.y},{color.x,color.y,color.z,1.0f},uv0});
-
-    m.v.push_back({{c0.x,z1,c0.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c1.x,z1,c1.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c2.x,z1,c2.y},{color.x,color.y,color.z,1.0f},uv0});
-    m.v.push_back({{c3.x,z1,c3.y},{color.x,color.y,color.z,1.0f},uv0});
-
-    AddQuad(m,base+0,base+1,base+2,base+3); // bottom
-    AddQuad(m,base+4,base+7,base+6,base+5); // top
-    AddQuad(m,base+0,base+4,base+5,base+1);
-    AddQuad(m,base+1,base+5,base+6,base+2);
-    AddQuad(m,base+2,base+6,base+7,base+3);
-    AddQuad(m,base+3,base+7,base+4,base+0);
-}
-
-// ============================================================
-// Stylized Slab
-// ============================================================
-
-struct FloorSlab {
-    Polygon2D footprint;
-    float z;
-    float thickness;
-};
-
-Mesh BuildSlab(const FloorSlab& s,
-               Vec3 baseColor,
-               float uvScale)
-{
-    Mesh m;
-    int n = (int)s.footprint.v.size();
-
-    float z0 = s.z;
-    float z1 = s.z + s.thickness;
-
-    // --- Bottom (underside, darker AO) ---
-    for(auto& p : s.footprint.v){
-        m.v.push_back({
-            {p.x, z0, p.y},
-            {baseColor.x, baseColor.y, baseColor.z, 0.60f},
-            {p.x*uvScale, p.y*uvScale}
-        });
-    }
-
-    // --- Top (lighter) ---
-    for(auto& p : s.footprint.v){
-        m.v.push_back({
-            {p.x, z1, p.y},
-            {baseColor.x, baseColor.y, baseColor.z, 1.00f},
-            {p.x*uvScale, p.y*uvScale}
-        });
-    }
-
-    // caps (support concave footprints)
-    std::vector<unsigned> tri = TriangulateCCW(s.footprint.v);
-    for(size_t k=0;k<tri.size();k+=3){
-        unsigned a = tri[k];
-        unsigned b = tri[k+1];
-        unsigned c = tri[k+2];
-        m.i.insert(m.i.end(), {a,c,b}); // bottom
-        m.i.insert(m.i.end(), {n+a,n+b,n+c}); // top
-    }
-
-    // sides (vertical gradient AO)
-    for(int i=0;i<n;i++){
-        int j=(i+1)%n;
-        AddQuad(m,i,j,n+j,n+i);
-    }
-
-    return m;
-}
-
-// ============================================================
-// Curtain Wall (grouped floors, stylized)
-// ============================================================
-
-Mesh BuildCurtainWall(const Polygon2D& fp,
-                      float z0,float z1,
-                      float inset,
-                      Vec3 windowColor,
-                      Vec3 mullionColor,
-                      float panelWidth,
-                      float mullionWidth,
-                      float uvVScale)
-{
-    Mesh m;
-    Polygon2D g = fp.Inset(inset);
-    int n = (int)g.v.size();
-
-    float ao = std::max(0.6f, 1.0f - inset*0.15f);
-
-    for(int i=0;i<n;i++){
-        int j=(i+1)%n;
-        Vec2 a=g.v[i], b=g.v[j];
-        Vec2 dir = Normalize({b.x-a.x, b.y-a.y});
-        float len = Length({b.x-a.x, b.y-a.y});
-
-        float t = 0.0f;
-        float u0 = 0.0f;
-        bool isWindow = true;
-
-        while(t < len){
-            float seg = isWindow ? panelWidth : mullionWidth;
-            if(seg <= 0.0f){
-                seg = len - t;
-            }
-            float segLen = std::min(seg, len - t);
-
-            Vec2 p0 = {a.x + dir.x * t, a.y + dir.y * t};
-            Vec2 p1 = {a.x + dir.x * (t + segLen), a.y + dir.y * (t + segLen)};
-
-            Vec3 col = isWindow ? windowColor : mullionColor;
-            unsigned base=(unsigned)m.v.size();
-
-            m.v.push_back({{p0.x,z0,p0.y},{col.x,col.y,col.z,ao},{u0,0}});
-            m.v.push_back({{p1.x,z0,p1.y},{col.x,col.y,col.z,ao},{u0+segLen,0}});
-            m.v.push_back({{p1.x,z1,p1.y},{col.x,col.y,col.z,ao},{u0+segLen,(z1-z0)*uvVScale}});
-            m.v.push_back({{p0.x,z1,p0.y},{col.x,col.y,col.z,ao},{u0,(z1-z0)*uvVScale}});
-
-            AddQuad(m,base,base+1,base+2,base+3);
-
-            t += segLen;
-            u0 += segLen;
-            if(isWindow && mullionWidth > 0.0f){
-                isWindow = false;
-            }else{
-                isWindow = true;
-            }
-        }
-    }
-    return m;
-}
-
-// ============================================================
-// OBJ Writer (vertex color + AO)
-// ============================================================
-
-void WriteOBJ(const char* path,const Mesh& m)
-{
-    std::ofstream out(path);
-
-    for(auto& v:m.v)
-        out<<"v "<<v.pos.x<<" "<<v.pos.y<<" "<<v.pos.z<<"\n";
-
-    for(auto& v:m.v)
-        out<<"vt "<<v.uv.x<<" "<<v.uv.y<<"\n";
-
-    for(auto& v:m.v)
-        out<<"vc "<<v.color.r<<" "<<v.color.g<<" "<<v.color.b<<" "<<v.color.a<<"\n";
-
-    for(size_t k=0;k<m.i.size();k+=3){
-        unsigned a=m.i[k]+1,b=m.i[k+1]+1,c=m.i[k+2]+1;
-        out<<"f "<<a<<"/"<<a<<" "<<b<<"/"<<b<<" "<<c<<"/"<<c<<"\n";
-    }
-}
-
-// ============================================================
-// glTF Writer (positions + uvs + vertex colors)
-// ============================================================
-
-static void AppendAligned(std::vector<std::uint8_t>& buf)
-{
-    while(buf.size() % 4 != 0){
-        buf.push_back(0);
-    }
-}
-
-template <typename T>
-static size_t AppendData(std::vector<std::uint8_t>& buf, const T* data, size_t count)
-{
-    AppendAligned(buf);
-    size_t offset = buf.size();
-    const std::uint8_t* bytes = reinterpret_cast<const std::uint8_t*>(data);
-    buf.insert(buf.end(), bytes, bytes + sizeof(T) * count);
-    return offset;
-}
-
-static std::string ReplaceExtension(const std::string& path, const char* ext)
-{
-    size_t dot = path.find_last_of('.');
-    if(dot == std::string::npos){
-        return path + ext;
-    }
-    return path.substr(0, dot) + ext;
-}
-
-void WriteGLTF(const char* path, const Mesh& m)
-{
-    std::string gltfPath(path);
-    std::string binPath = ReplaceExtension(gltfPath, ".bin");
-
-    size_t vCount = m.v.size();
-    size_t iCount = m.i.size();
-
-    std::vector<float> positions;
-    std::vector<float> colors;
-    std::vector<float> uvs;
-    positions.reserve(vCount * 3);
-    colors.reserve(vCount * 4);
-    uvs.reserve(vCount * 2);
-
-    Vec3 posMin{std::numeric_limits<float>::max(),
-                std::numeric_limits<float>::max(),
-                std::numeric_limits<float>::max()};
-    Vec3 posMax{-std::numeric_limits<float>::max(),
-                -std::numeric_limits<float>::max(),
-                -std::numeric_limits<float>::max()};
-
-    for(const auto& v : m.v){
-        positions.push_back(v.pos.x);
-        positions.push_back(v.pos.y);
-        positions.push_back(v.pos.z);
-
-        colors.push_back(v.color.r);
-        colors.push_back(v.color.g);
-        colors.push_back(v.color.b);
-        colors.push_back(v.color.a);
-
-        uvs.push_back(v.uv.x);
-        uvs.push_back(v.uv.y);
-
-        posMin.x = std::min(posMin.x, v.pos.x);
-        posMin.y = std::min(posMin.y, v.pos.y);
-        posMin.z = std::min(posMin.z, v.pos.z);
-        posMax.x = std::max(posMax.x, v.pos.x);
-        posMax.y = std::max(posMax.y, v.pos.y);
-        posMax.z = std::max(posMax.z, v.pos.z);
-    }
-
-    std::vector<std::uint8_t> buffer;
-    size_t posOffset = AppendData(buffer, positions.data(), positions.size());
-    size_t posLength = positions.size() * sizeof(float);
-
-    size_t colorOffset = AppendData(buffer, colors.data(), colors.size());
-    size_t colorLength = colors.size() * sizeof(float);
-
-    size_t uvOffset = AppendData(buffer, uvs.data(), uvs.size());
-    size_t uvLength = uvs.size() * sizeof(float);
-
-    size_t idxOffset = AppendData(buffer, m.i.data(), m.i.size());
-    size_t idxLength = m.i.size() * sizeof(unsigned);
-
-    std::ofstream bout(binPath, std::ios::binary);
-    bout.write(reinterpret_cast<const char*>(buffer.data()), (std::streamsize)buffer.size());
-
-    std::ofstream jout(gltfPath);
-    jout <<
-        "{\n"
-        "  \"asset\": {\"version\": \"2.0\"},\n"
-        "  \"buffers\": [\n"
-        "    {\"uri\": \"" << binPath.substr(binPath.find_last_of("/\\") + 1)
-        << "\", \"byteLength\": " << buffer.size() << "}\n"
-        "  ],\n"
-        "  \"bufferViews\": [\n"
-        "    {\"buffer\": 0, \"byteOffset\": " << posOffset << ", \"byteLength\": " << posLength << ", \"target\": 34962},\n"
-        "    {\"buffer\": 0, \"byteOffset\": " << colorOffset << ", \"byteLength\": " << colorLength << ", \"target\": 34962},\n"
-        "    {\"buffer\": 0, \"byteOffset\": " << uvOffset << ", \"byteLength\": " << uvLength << ", \"target\": 34962},\n"
-        "    {\"buffer\": 0, \"byteOffset\": " << idxOffset << ", \"byteLength\": " << idxLength << ", \"target\": 34963}\n"
-        "  ],\n"
-        "  \"accessors\": [\n"
-        "    {\"bufferView\": 0, \"componentType\": 5126, \"count\": " << vCount
-        << ", \"type\": \"VEC3\", \"min\": [" << posMin.x << ", " << posMin.y << ", " << posMin.z
-        << "], \"max\": [" << posMax.x << ", " << posMax.y << ", " << posMax.z << "]},\n"
-        "    {\"bufferView\": 1, \"componentType\": 5126, \"count\": " << vCount
-        << ", \"type\": \"VEC4\"},\n"
-        "    {\"bufferView\": 2, \"componentType\": 5126, \"count\": " << vCount
-        << ", \"type\": \"VEC2\"},\n"
-        "    {\"bufferView\": 3, \"componentType\": 5125, \"count\": " << iCount
-        << ", \"type\": \"SCALAR\", \"min\": [0], \"max\": [" << (iCount ? (unsigned)(*std::max_element(m.i.begin(), m.i.end())) : 0u) << "]}\n"
-        "  ],\n"
-        "  \"meshes\": [\n"
-        "    {\"primitives\": [\n"
-        "      {\"attributes\": {\"POSITION\": 0, \"COLOR_0\": 1, \"TEXCOORD_0\": 2}, \"indices\": 3}\n"
-        "    ]}\n"
-        "  ],\n"
-        "  \"nodes\": [\n"
-        "    {\"mesh\": 0}\n"
-        "  ],\n"
-        "  \"scenes\": [\n"
-        "    {\"nodes\": [0]}\n"
-        "  ],\n"
-        "  \"scene\": 0\n"
-        "}\n";
-}
-
-// ============================================================
-// Main
-// ============================================================
-
-int main()
-{
-    // --- Lot footprint (meters) ---
-    Polygon2D lot {{
-        {-18,-12},{18,-12},{22,10},{-14,14}
-    }};
-
-    // --- Stylized office parameters ---
-    const int   floors       = 4;
-    const float floorH       = 3.6f;
-    const float slabT        = 0.75f;  // chunky SimCity slabs
-    const float glassInset   = 1.2f;
-    const bool  enablePilotis    = true;
-    const int   pilotisMinFloors = 4;
-    const float pilotisHeight    = (enablePilotis && floors > pilotisMinFloors) ? 3.0f : 0.0f;
-    const int   finEvery      = 2;
-    const float finThickness  = 0.20f;
-    const float finProjection = 0.60f;
-    const float curtainInset  = 0.80f;
-    const bool  usePodiumTower = false;
-    const int   podiumFloors   = 2;
-    const float towerInset     = 2.5f;
-    const bool  useLShape      = true;
-    const float lCutX          = 6.0f;
-    const float lCutY          = 4.0f;
-    const float roofCapT       = 0.60f;
-    const float roofCapOverhang= 0.40f;
-    const float roofDeckT      = 0.15f;
-    const float roofDeckInset  = 1.0f;
 
     // --- Building footprint from lot (OBB + shrink + snap + clamp) ---
-    Polygon2D baseRect = PlaceRectInLot(lot, 5.0f, 0.5f);
+    Polygon2D baseRect = PlaceRectInLot(cfg.lot, cfg.lotShrink, cfg.lotSnap);
     Polygon2D base = baseRect;
-    if(useLShape){
-        base = MakeLShapeFootprint(baseRect, lCutX, lCutY);
+    if(cfg.useLShape){
+        base = MakeLShapeFootprint(baseRect, cfg.lCutX, cfg.lCutY);
     }
 
-    // --- Palette (cheery, graphic) ---
-    Vec3 concrete = {0.55f,0.56f,0.57f};
-    Vec3 window   = {0.10f,0.65f,0.95f};
-    Vec3 roofDeck = {0.62f,0.62f,0.64f};
-    Vec3 lotFill  = {0.25f,0.50f,0.30f};
+    float pilotisHeight = cfg.enablePilotis ? cfg.pilotisHeight : 0.0f;
+
+    float totalHeight = pilotisHeight + cfg.floors * cfg.floorH;
+
+    Polygon2D towerBase = base;
+    if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
+        towerBase = base.Inset(cfg.towerInset);
+    }
 
     Mesh building;
-    unsigned offset=0;
+    unsigned offset = 0;
 
     // --- Lot visualization slab ---
     {
-        Mesh lotMesh = BuildSlab({lot,-0.25f,0.25f},lotFill,0.03f);
+        Mesh lotMesh = BuildSlab({cfg.lot,-0.25f,0.25f},cfg.lotFill,0.03f);
         for(auto& i:lotMesh.i) i+=offset;
         building.v.insert(building.v.end(),lotMesh.v.begin(),lotMesh.v.end());
         building.i.insert(building.i.end(),lotMesh.i.begin(),lotMesh.i.end());
         offset += (unsigned)lotMesh.v.size();
     }
 
-    float totalHeight = pilotisHeight + floors * floorH;
-
-    Polygon2D towerBase = base;
-    if(usePodiumTower && !useLShape && podiumFloors < floors){
-        towerBase = base.Inset(towerInset);
-    }
-
-    for(int f=0;f<floors;f++){
+    for(int f=0;f<cfg.floors;f++){
         Polygon2D fp = base;
-        if(usePodiumTower && !useLShape && f >= podiumFloors){
+        if(cfg.usePodiumTower && !cfg.useLShape && f >= cfg.podiumFloors){
             fp = towerBase;
         }
 
-        float z = pilotisHeight + f * floorH;
+        float z = pilotisHeight + f * cfg.floorH;
 
         // --- slab ---
-        Vec3 slabColor = (f == floors-1) ? roofDeck : concrete;
-        Mesh slab = BuildSlab({fp,z,slabT},slabColor,0.02f);
+        Vec3 slabColor = (f == cfg.floors-1) ? cfg.roofDeck : cfg.concrete;
+        Mesh slab = BuildSlab({fp,z,cfg.slabT},slabColor,0.02f);
         for(auto& i:slab.i) i+=offset;
         building.v.insert(building.v.end(),slab.v.begin(),slab.v.end());
         building.i.insert(building.i.end(),slab.i.begin(),slab.i.end());
@@ -744,34 +62,37 @@ int main()
         // --- curtain wall every 3 floors ---
         if(f % 3 == 0){
             float bandTop = totalHeight;
-            if(usePodiumTower && !useLShape && f < podiumFloors){
-                bandTop = pilotisHeight + podiumFloors * floorH;
+            if(cfg.usePodiumTower && !cfg.useLShape && f < cfg.podiumFloors){
+                bandTop = pilotisHeight + cfg.podiumFloors * cfg.floorH;
             }
-            float cwTop = std::min(z + 3 * floorH, bandTop);
-            if(cwTop <= z + slabT){
+            float cwTop = std::min(z + 3 * cfg.floorH, bandTop);
+            cwTop = std::min(cwTop, totalHeight - cfg.roofCapT);
+            if(cwTop >= totalHeight - cfg.roofCapT - 1e-3f){
                 continue;
             }
-            Polygon2D cwFp = OutsetFromCentroid(fp, -curtainInset);
-            Mesh cw = BuildCurtainWall(cwFp,
-                                       z+slabT,
-                                       cwTop,
-                                       0.0f,
-                                       window,
-                                       concrete,
-                                       2.2f,
-                                       0.35f,
-                                       0.15f);
-            for(auto& i:cw.i) i+=offset;
-            building.v.insert(building.v.end(),cw.v.begin(),cw.v.end());
-            building.i.insert(building.i.end(),cw.i.begin(),cw.i.end());
-            offset += (unsigned)cw.v.size();
+            if(cwTop > z + cfg.slabT){
+                Polygon2D cwFp = OutsetFromCentroid(fp, -cfg.curtainInset);
+                Mesh cw = BuildCurtainWall(cwFp,
+                                           z+cfg.slabT,
+                                           cwTop,
+                                           0.0f,
+                                           cfg.window,
+                                           cfg.concrete,
+                                           2.2f,
+                                           0.35f,
+                                           0.15f);
+                for(auto& i:cw.i) i+=offset;
+                building.v.insert(building.v.end(),cw.v.begin(),cw.v.end());
+                building.i.insert(building.i.end(),cw.i.begin(),cw.i.end());
+                offset += (unsigned)cw.v.size();
+            }
         }
 
         // --- Brise-soleil: horizontal fins every 2 floors ---
-        if(finEvery > 0 && (f + 1) % finEvery == 0 && f != floors - 1){
-            float finZ = z + floorH - finThickness * 0.5f;
-            Polygon2D finFp = OutsetFromCentroid(fp, finProjection);
-            Mesh fin = BuildSlab({finFp,finZ,finThickness},concrete,0.02f);
+        if(cfg.finEvery > 0 && (f + 1) % cfg.finEvery == 0 && f != cfg.floors - 1){
+            float finZ = z + cfg.floorH - cfg.finThickness * 0.5f;
+            Polygon2D finFp = OutsetFromCentroid(fp, cfg.finProjection);
+            Mesh fin = BuildSlab({finFp,finZ,cfg.finThickness},cfg.concrete,0.02f);
             for(auto& i:fin.i) i+=offset;
             building.v.insert(building.v.end(),fin.v.begin(),fin.v.end());
             building.i.insert(building.i.end(),fin.i.begin(),fin.i.end());
@@ -780,9 +101,9 @@ int main()
     }
 
     // --- Podium roof slab to support tower footprint ---
-    if(usePodiumTower && !useLShape && podiumFloors > 0 && podiumFloors < floors){
-        float podiumZ = pilotisHeight + podiumFloors * floorH - 0.02f;
-        Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},concrete,0.02f);
+    if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors > 0 && cfg.podiumFloors < cfg.floors){
+        float podiumZ = pilotisHeight + cfg.podiumFloors * cfg.floorH - 0.02f;
+        Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},cfg.concrete,0.02f);
         for(auto& i:podiumRoof.i) i+=offset;
         building.v.insert(building.v.end(),podiumRoof.v.begin(),podiumRoof.v.end());
         building.i.insert(building.i.end(),podiumRoof.i.begin(),podiumRoof.i.end());
@@ -808,7 +129,10 @@ int main()
         for(float x=-usableX; x<=usableX+0.01f; x+=spacing){
             for(float y=-usableY; y<=usableY+0.01f; y+=spacing){
                 Vec2 c = center + axisX * x + axisY * y;
-                AddBox(building, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, concrete);
+                if(!PointInPolygon(base, c)){
+                    continue;
+                }
+                AddBox(building, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, cfg.concrete);
             }
         }
     }
@@ -816,12 +140,12 @@ int main()
     // --- Roof cap ---
     {
         Polygon2D capBase = base;
-        if(usePodiumTower && !useLShape && podiumFloors < floors){
+        if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
             capBase = towerBase;
         }
-        Polygon2D capFp = useLShape ? capBase : capBase.Inset(-roofCapOverhang);
-        float capZ = totalHeight - roofCapT;
-        Mesh cap = BuildSlab({capFp,capZ,roofCapT},concrete,0.02f);
+        Polygon2D capFp = cfg.useLShape ? capBase : OutsetFromCentroid(capBase, cfg.roofCapOverhang);
+        float capZ = totalHeight - cfg.roofCapT;
+        Mesh cap = BuildSlab({capFp,capZ,cfg.roofCapT},cfg.concrete,0.02f);
         for(auto& i:cap.i) i+=offset;
         building.v.insert(building.v.end(),cap.v.begin(),cap.v.end());
         building.i.insert(building.i.end(),cap.i.begin(),cap.i.end());
@@ -831,12 +155,12 @@ int main()
     // --- Roof deck ---
     {
         Polygon2D deckBase = base;
-        if(usePodiumTower && !useLShape && podiumFloors < floors){
+        if(cfg.usePodiumTower && !cfg.useLShape && cfg.podiumFloors < cfg.floors){
             deckBase = towerBase;
         }
-        Polygon2D deckFp = useLShape ? deckBase : deckBase.Inset(roofDeckInset);
-        float deckZ = totalHeight;
-        Mesh deck = BuildSlab({deckFp,deckZ,roofDeckT},roofDeck,0.02f);
+        Polygon2D deckFp = cfg.useLShape ? deckBase : OutsetFromCentroid(deckBase, -cfg.roofDeckInset);
+        float deckZ = totalHeight + 0.02f;
+        Mesh deck = BuildSlab({deckFp,deckZ,cfg.roofDeckT},cfg.roofDeck,0.02f);
         for(auto& i:deck.i) i+=offset;
         building.v.insert(building.v.end(),deck.v.begin(),deck.v.end());
         building.i.insert(building.i.end(),deck.i.begin(),deck.i.end());
@@ -845,5 +169,6 @@ int main()
 
     WriteOBJ("simcity_midcentury_office.obj",building);
     WriteGLTF("simcity_midcentury_office.gltf",building);
-    std::cout<<"Wrote simcity_midcentury_office.obj and simcity_midcentury_office.gltf\n";
+    std::cout << "Wrote simcity_midcentury_office.obj and simcity_midcentury_office.gltf\n";
+    return 0;
 }

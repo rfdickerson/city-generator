@@ -3,7 +3,20 @@ project(buildings)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(buildings main.cpp)
+add_executable(buildings
+    main.cpp
+    math.h
+    geometry.h
+    geometry.cpp
+    mesh.h
+    mesh.cpp
+    io.h
+    io.cpp
+    json.h
+    json.cpp
+    config.h
+    config.cpp
+)
 
 enable_testing()
 

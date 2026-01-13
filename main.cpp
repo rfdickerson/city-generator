@@ -218,6 +218,45 @@ void AddQuad(Mesh& m,
     m.i.insert(m.i.end(), {a,b,c, a,c,d});
 }
 
+void AddBox(Mesh& m,
+            Vec2 center,
+            Vec2 axisX,
+            Vec2 axisY,
+            float halfX,
+            float halfY,
+            float z0,
+            float z1,
+            Vec3 color)
+{
+    Vec2 ax = axisX * halfX;
+    Vec2 ay = axisY * halfY;
+
+    Vec2 c0 = center + ax + ay;
+    Vec2 c1 = center - ax + ay;
+    Vec2 c2 = center - ax - ay;
+    Vec2 c3 = center + ax - ay;
+
+    unsigned base = (unsigned)m.v.size();
+    Vec2 uv0{0,0};
+
+    m.v.push_back({{c0.x,z0,c0.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c1.x,z0,c1.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c2.x,z0,c2.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c3.x,z0,c3.y},{color.x,color.y,color.z,1.0f},uv0});
+
+    m.v.push_back({{c0.x,z1,c0.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c1.x,z1,c1.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c2.x,z1,c2.y},{color.x,color.y,color.z,1.0f},uv0});
+    m.v.push_back({{c3.x,z1,c3.y},{color.x,color.y,color.z,1.0f},uv0});
+
+    AddQuad(m,base+0,base+1,base+2,base+3); // bottom
+    AddQuad(m,base+4,base+7,base+6,base+5); // top
+    AddQuad(m,base+0,base+4,base+5,base+1);
+    AddQuad(m,base+1,base+5,base+6,base+2);
+    AddQuad(m,base+2,base+6,base+7,base+3);
+    AddQuad(m,base+3,base+7,base+4,base+0);
+}
+
 // ============================================================
 // Stylized Slab
 // ============================================================
@@ -503,6 +542,8 @@ int main()
     const float floorH       = 3.6f;
     const float slabT        = 0.75f;  // chunky SimCity slabs
     const float glassInset   = 1.2f;
+    const int   pilotisMinFloors = 4;
+    const float pilotisHeight    = (floors > pilotisMinFloors) ? 3.0f : 0.0f;
 
     // --- Palette (cheery, graphic) ---
     Vec3 concrete = {0.55f,0.56f,0.57f};
@@ -522,12 +563,12 @@ int main()
         offset += (unsigned)lotMesh.v.size();
     }
 
-    float totalHeight = floors * floorH;
+    float totalHeight = pilotisHeight + floors * floorH;
 
     for(int f=0;f<floors;f++){
         Polygon2D fp = base;
 
-        float z = f * floorH;
+        float z = pilotisHeight + f * floorH;
 
         // --- slab ---
         Vec3 slabColor = (f == floors-1) ? roofDeck : concrete;
@@ -556,6 +597,30 @@ int main()
             building.v.insert(building.v.end(),cw.v.begin(),cw.v.end());
             building.i.insert(building.i.end(),cw.i.begin(),cw.i.end());
             offset += (unsigned)cw.v.size();
+        }
+    }
+
+    // --- Pilotis columns ---
+    if(pilotisHeight > 0.0f){
+        Vec2 center = Centroid(base);
+        Vec2 axisX = Normalize({base.v[0].x-base.v[1].x, base.v[0].y-base.v[1].y});
+        Vec2 axisY = Normalize({base.v[1].x-base.v[2].x, base.v[1].y-base.v[2].y});
+
+        float halfX = 0.5f * Length({base.v[0].x-base.v[1].x, base.v[0].y-base.v[1].y});
+        float halfY = 0.5f * Length({base.v[1].x-base.v[2].x, base.v[1].y-base.v[2].y});
+
+        float edgeInset = 2.0f;
+        float spacing = 4.0f;
+        float colHalf = 0.25f;
+
+        float usableX = std::max(0.0f, halfX - edgeInset);
+        float usableY = std::max(0.0f, halfY - edgeInset);
+
+        for(float x=-usableX; x<=usableX+0.01f; x+=spacing){
+            for(float y=-usableY; y<=usableY+0.01f; y+=spacing){
+                Vec2 c = center + axisX * x + axisY * y;
+                AddBox(building, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, concrete);
+            }
         }
     }
 

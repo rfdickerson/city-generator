@@ -1,0 +1,9 @@
+# Build outputs
+cmake-build-*/
+build/
+
+# IDE settings
+.idea/
+
+# Generated assets
+*.obj

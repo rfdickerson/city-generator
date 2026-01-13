@@ -8,8 +8,12 @@ add_executable(buildings
     math.h
     geometry.h
     geometry.cpp
+    geom_ops.h
+    geom_ops.cpp
     mesh.h
     mesh.cpp
+    style_midcentury.h
+    style_midcentury.cpp
     io.h
     io.cpp
     json.h

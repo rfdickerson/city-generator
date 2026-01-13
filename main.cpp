@@ -25,6 +25,82 @@ Vec2 Normalize(Vec2 v){ float len = Length(v); return {v.x/len, v.y/len}; }
 Vec2 Perp(Vec2 v){ return {-v.y, v.x}; }
 float Cross(Vec2 a, Vec2 b){ return a.x*b.y - a.y*b.x; }
 
+float SignedArea(const std::vector<Vec2>& v)
+{
+    float a = 0.0f;
+    int n = (int)v.size();
+    for(int i=0;i<n;i++){
+        const Vec2& p = v[i];
+        const Vec2& q = v[(i+1)%n];
+        a += p.x * q.y - q.x * p.y;
+    }
+    return 0.5f * a;
+}
+
+bool PointInTri(Vec2 p, Vec2 a, Vec2 b, Vec2 c, float sign, float eps)
+{
+    float c0 = Cross({b.x-a.x, b.y-a.y}, {p.x-a.x, p.y-a.y}) * sign;
+    float c1 = Cross({c.x-b.x, c.y-b.y}, {p.x-b.x, p.y-b.y}) * sign;
+    float c2 = Cross({a.x-c.x, a.y-c.y}, {p.x-c.x, p.y-c.y}) * sign;
+    return c0 >= -eps && c1 >= -eps && c2 >= -eps;
+}
+
+std::vector<unsigned> TriangulateCCW(const std::vector<Vec2>& v)
+{
+    std::vector<unsigned> out;
+    int n = (int)v.size();
+    if(n < 3){
+        return out;
+    }
+
+    std::vector<int> idx(n);
+    for(int i=0;i<n;i++) idx[i]=i;
+
+    float sign = (SignedArea(v) >= 0.0f) ? 1.0f : -1.0f;
+    const float eps = 1e-5f;
+    int guard = 0;
+    while(idx.size() > 2 && guard++ < n*n){
+        bool clipped = false;
+        int m = (int)idx.size();
+        for(int i=0;i<m;i++){
+            int i0 = idx[(i-1+m)%m];
+            int i1 = idx[i];
+            int i2 = idx[(i+1)%m];
+
+            Vec2 a = v[i0];
+            Vec2 b = v[i1];
+            Vec2 c = v[i2];
+
+            if(Cross({b.x-a.x, b.y-a.y}, {c.x-b.x, c.y-b.y}) * sign <= eps){
+                continue;
+            }
+
+            bool hasInside = false;
+            for(int j=0;j<m;j++){
+                int vi = idx[j];
+                if(vi==i0 || vi==i1 || vi==i2) continue;
+                if(PointInTri(v[vi], a, b, c, sign, eps)){
+                    hasInside = true;
+                    break;
+                }
+            }
+            if(hasInside) continue;
+
+            out.push_back((unsigned)i0);
+            out.push_back((unsigned)i1);
+            out.push_back((unsigned)i2);
+            idx.erase(idx.begin()+i);
+            clipped = true;
+            break;
+        }
+        if(!clipped){
+            break;
+        }
+    }
+    return out;
+}
+
+
 // ============================================================
 // Polygon (convex, CCW)
 // ============================================================
@@ -87,6 +163,34 @@ bool PointInConvexCCW(const Polygon2D& poly, Vec2 p)
         }
     }
     return true;
+}
+
+Polygon2D ScaleFromCentroid(const Polygon2D& p, float scale)
+{
+    Vec2 c = Centroid(p);
+    Polygon2D out = p;
+    for(auto& v : out.v){
+        v = c + (v - c) * scale;
+    }
+    return out;
+}
+
+Polygon2D OutsetFromCentroid(const Polygon2D& p, float delta)
+{
+    Vec2 c = Centroid(p);
+    float avg = 0.0f;
+    for(const auto& v : p.v){
+        avg += Length(v - c);
+    }
+    avg = (p.v.empty()) ? 0.0f : avg / (float)p.v.size();
+    if(avg <= 1e-4f){
+        return p;
+    }
+    float scale = (avg + delta) / avg;
+    if(scale < 0.05f){
+        scale = 0.05f;
+    }
+    return ScaleFromCentroid(p, scale);
 }
 
 // ============================================================
@@ -196,6 +300,34 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot,
     return rect;
 }
 
+Polygon2D MakeLShapeFootprint(const Polygon2D& baseRect,
+                              float cutX,
+                              float cutY)
+{
+    Vec2 center = Centroid(baseRect);
+    Vec2 axisX = Normalize({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
+    Vec2 axisY = Normalize({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
+    float halfX = 0.5f * Length({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
+    float halfY = 0.5f * Length({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
+
+    float cx = std::min(std::max(cutX, 0.0f), halfX - 0.5f);
+    float cy = std::min(std::max(cutY, 0.0f), halfY - 0.5f);
+
+    auto P = [&](float u, float v){
+        return center + axisX * u + axisY * v;
+    };
+
+    Polygon2D l {{
+        P(+halfX, +halfY - cy),
+        P(+halfX, -halfY),
+        P(-halfX, -halfY),
+        P(-halfX, +halfY),
+        P(+halfX - cx, +halfY),
+        P(+halfX - cx, +halfY - cy)
+    }};
+    return l;
+}
+
 // ============================================================
 // Mesh
 // ============================================================
@@ -295,10 +427,14 @@ Mesh BuildSlab(const FloorSlab& s,
         });
     }
 
-    // caps
-    for(int i=1;i+1<n;i++){
-        m.i.insert(m.i.end(), {0,(unsigned)(i+1),(unsigned)i});
-        m.i.insert(m.i.end(), {(unsigned)n,(unsigned)(n+i),(unsigned)(n+i+1)});
+    // caps (support concave footprints)
+    std::vector<unsigned> tri = TriangulateCCW(s.footprint.v);
+    for(size_t k=0;k<tri.size();k+=3){
+        unsigned a = tri[k];
+        unsigned b = tri[k+1];
+        unsigned c = tri[k+2];
+        m.i.insert(m.i.end(), {a,c,b}); // bottom
+        m.i.insert(m.i.end(), {n+a,n+b,n+c}); // top
     }
 
     // sides (vertical gradient AO)
@@ -534,9 +670,6 @@ int main()
         {-18,-12},{18,-12},{22,10},{-14,14}
     }};
 
-    // --- Building footprint from lot (OBB + shrink + snap + clamp) ---
-    Polygon2D base = PlaceRectInLot(lot, 5.0f, 0.5f);
-
     // --- Stylized office parameters ---
     const int   floors       = 4;
     const float floorH       = 3.6f;
@@ -548,11 +681,24 @@ int main()
     const int   finEvery      = 2;
     const float finThickness  = 0.20f;
     const float finProjection = 0.60f;
+    const float curtainInset  = 0.80f;
     const bool  usePodiumTower = false;
     const int   podiumFloors   = 2;
     const float towerInset     = 2.5f;
+    const bool  useLShape      = true;
+    const float lCutX          = 6.0f;
+    const float lCutY          = 4.0f;
     const float roofCapT       = 0.60f;
     const float roofCapOverhang= 0.40f;
+    const float roofDeckT      = 0.15f;
+    const float roofDeckInset  = 1.0f;
+
+    // --- Building footprint from lot (OBB + shrink + snap + clamp) ---
+    Polygon2D baseRect = PlaceRectInLot(lot, 5.0f, 0.5f);
+    Polygon2D base = baseRect;
+    if(useLShape){
+        base = MakeLShapeFootprint(baseRect, lCutX, lCutY);
+    }
 
     // --- Palette (cheery, graphic) ---
     Vec3 concrete = {0.55f,0.56f,0.57f};
@@ -575,13 +721,13 @@ int main()
     float totalHeight = pilotisHeight + floors * floorH;
 
     Polygon2D towerBase = base;
-    if(usePodiumTower && podiumFloors < floors){
+    if(usePodiumTower && !useLShape && podiumFloors < floors){
         towerBase = base.Inset(towerInset);
     }
 
     for(int f=0;f<floors;f++){
         Polygon2D fp = base;
-        if(usePodiumTower && f >= podiumFloors){
+        if(usePodiumTower && !useLShape && f >= podiumFloors){
             fp = towerBase;
         }
 
@@ -598,17 +744,18 @@ int main()
         // --- curtain wall every 3 floors ---
         if(f % 3 == 0){
             float bandTop = totalHeight;
-            if(usePodiumTower && f < podiumFloors){
+            if(usePodiumTower && !useLShape && f < podiumFloors){
                 bandTop = pilotisHeight + podiumFloors * floorH;
             }
             float cwTop = std::min(z + 3 * floorH, bandTop);
             if(cwTop <= z + slabT){
                 continue;
             }
-            Mesh cw = BuildCurtainWall(fp,
+            Polygon2D cwFp = OutsetFromCentroid(fp, -curtainInset);
+            Mesh cw = BuildCurtainWall(cwFp,
                                        z+slabT,
                                        cwTop,
-                                       glassInset,
+                                       0.0f,
                                        window,
                                        concrete,
                                        2.2f,
@@ -623,7 +770,7 @@ int main()
         // --- Brise-soleil: horizontal fins every 2 floors ---
         if(finEvery > 0 && (f + 1) % finEvery == 0 && f != floors - 1){
             float finZ = z + floorH - finThickness * 0.5f;
-            Polygon2D finFp = fp.Inset(-finProjection);
+            Polygon2D finFp = OutsetFromCentroid(fp, finProjection);
             Mesh fin = BuildSlab({finFp,finZ,finThickness},concrete,0.02f);
             for(auto& i:fin.i) i+=offset;
             building.v.insert(building.v.end(),fin.v.begin(),fin.v.end());
@@ -633,7 +780,7 @@ int main()
     }
 
     // --- Podium roof slab to support tower footprint ---
-    if(usePodiumTower && podiumFloors > 0 && podiumFloors < floors){
+    if(usePodiumTower && !useLShape && podiumFloors > 0 && podiumFloors < floors){
         float podiumZ = pilotisHeight + podiumFloors * floorH - 0.02f;
         Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},concrete,0.02f);
         for(auto& i:podiumRoof.i) i+=offset;
@@ -644,12 +791,12 @@ int main()
 
     // --- Pilotis columns ---
     if(pilotisHeight > 0.0f){
-        Vec2 center = Centroid(base);
-        Vec2 axisX = Normalize({base.v[0].x-base.v[1].x, base.v[0].y-base.v[1].y});
-        Vec2 axisY = Normalize({base.v[1].x-base.v[2].x, base.v[1].y-base.v[2].y});
+        Vec2 center = Centroid(baseRect);
+        Vec2 axisX = Normalize({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
+        Vec2 axisY = Normalize({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
 
-        float halfX = 0.5f * Length({base.v[0].x-base.v[1].x, base.v[0].y-base.v[1].y});
-        float halfY = 0.5f * Length({base.v[1].x-base.v[2].x, base.v[1].y-base.v[2].y});
+        float halfX = 0.5f * Length({baseRect.v[0].x-baseRect.v[1].x, baseRect.v[0].y-baseRect.v[1].y});
+        float halfY = 0.5f * Length({baseRect.v[1].x-baseRect.v[2].x, baseRect.v[1].y-baseRect.v[2].y});
 
         float edgeInset = 2.0f;
         float spacing = 4.0f;
@@ -669,16 +816,31 @@ int main()
     // --- Roof cap ---
     {
         Polygon2D capBase = base;
-        if(usePodiumTower && podiumFloors < floors){
+        if(usePodiumTower && !useLShape && podiumFloors < floors){
             capBase = towerBase;
         }
-        Polygon2D capFp = capBase.Inset(-roofCapOverhang);
+        Polygon2D capFp = useLShape ? capBase : capBase.Inset(-roofCapOverhang);
         float capZ = totalHeight - roofCapT;
         Mesh cap = BuildSlab({capFp,capZ,roofCapT},concrete,0.02f);
         for(auto& i:cap.i) i+=offset;
         building.v.insert(building.v.end(),cap.v.begin(),cap.v.end());
         building.i.insert(building.i.end(),cap.i.begin(),cap.i.end());
         offset += (unsigned)cap.v.size();
+    }
+
+    // --- Roof deck ---
+    {
+        Polygon2D deckBase = base;
+        if(usePodiumTower && !useLShape && podiumFloors < floors){
+            deckBase = towerBase;
+        }
+        Polygon2D deckFp = useLShape ? deckBase : deckBase.Inset(roofDeckInset);
+        float deckZ = totalHeight;
+        Mesh deck = BuildSlab({deckFp,deckZ,roofDeckT},roofDeck,0.02f);
+        for(auto& i:deck.i) i+=offset;
+        building.v.insert(building.v.end(),deck.v.begin(),deck.v.end());
+        building.i.insert(building.i.end(),deck.i.begin(),deck.i.end());
+        offset += (unsigned)deck.v.size();
     }
 
     WriteOBJ("simcity_midcentury_office.obj",building);

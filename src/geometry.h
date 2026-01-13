@@ -27,6 +27,7 @@ std::vector<unsigned> TriangulateCCW(const std::vector<Vec2>& v);
 OBB2D ComputeOBB(const Polygon2D& poly);
 Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep, Vec2 biasDir, float biasStrength);
 Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep);
+Polygon2D EnforceRectAspect(const Polygon2D& rect, float targetAspect, float minShortHalf);
 Polygon2D MakeLShapeFootprint(const Polygon2D& baseRect, float cutX, float cutY);
 Polygon2D ScaleFromCentroid(const Polygon2D& p, float scale);
 Polygon2D OutsetFromCentroid(const Polygon2D& p, float delta);

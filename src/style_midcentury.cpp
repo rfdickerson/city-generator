@@ -64,10 +64,53 @@ bool AllowsBriseSoleil(const sbl::BuildingPlan& plan)
     return plan.facadeType == sbl::FacadeType::BriseSoleil;
 }
 
+Polygon2D InsetIfUsable(const Polygon2D& fp, float inset)
+{
+    if(inset <= 1e-4f){
+        return fp;
+    }
+    Polygon2D insetFp = fp.Inset(inset);
+    float areaBase = std::fabs(SignedArea(fp.v));
+    float areaInset = std::fabs(SignedArea(insetFp.v));
+    if(areaBase <= 1e-4f || areaInset < areaBase * 0.45f){
+        return fp;
+    }
+    return insetFp;
+}
+
+float PilotisGroundInset(const Polygon2D& fp, const sbl::BuildingPlan& plan)
+{
+    float minEdge = std::numeric_limits<float>::max();
+    int n = (int)fp.v.size();
+    for(int i=0;i<n;i++){
+        Vec2 a = fp.v[i];
+        Vec2 b = fp.v[(i+1)%n];
+        minEdge = std::min(minEdge, Length({b.x-a.x, b.y-a.y}));
+    }
+    float inset = std::max(plan.lotSnap * 1.5f, 1.0f);
+    inset = std::min(inset, minEdge * 0.25f);
+    return inset;
+}
+
+void AddPilotisCore(Mesh& out, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
+{
+    if(pilotisHeight <= 0.0f){
+        return;
+    }
+    float inset = PilotisGroundInset(base, plan);
+    Polygon2D coreFp = InsetIfUsable(base, inset);
+    Mesh core = BuildSlab({coreFp, 0.0f, pilotisHeight}, plan.concrete, 0.02f, SlabRole::Public);
+    Append(out, core);
+}
+
 Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
 {
     Footprints f;
     f.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap, plan.lotBiasDir, plan.lotBias);
+    if(plan.forceFootprintAspect && plan.footprintAspect > 1.01f){
+        float minShortHalf = std::max(2.0f, plan.lotSnap * 2.0f);
+        f.baseRect = EnforceRectAspect(f.baseRect, plan.footprintAspect, minShortHalf);
+    }
     f.base = f.baseRect;
     if(plan.useLShape){
         f.base = MakeLShapeFootprint(f.baseRect, plan.lCutX, plan.lCutY);
@@ -209,6 +252,20 @@ void AddRoofDeck(Mesh& out, const Polygon2D& deckBase, float totalHeight, const 
     float deckZ = totalHeight + 0.02f;
     Mesh deck = BuildSlab({deckFp,deckZ,plan.roofDeckT},plan.roofDeck,0.02f, SlabRole::Terrace);
     Append(out, deck);
+    if(plan.roofDeckEnclosed){
+        float wallZ0 = deckZ + plan.roofDeckT;
+        float wallH = 1.1f;
+        Mesh wall = BuildCurtainWall(deckFp,
+                                     wallZ0,
+                                     wallZ0 + wallH,
+                                     0.0f,
+                                     plan.concrete,
+                                     plan.concrete,
+                                     50.0f,
+                                     0.0f,
+                                     0.3f);
+        Append(out, wall);
+    }
 }
 
 } // namespace
@@ -221,6 +278,7 @@ Mesh BuildMidcenturyBuilding(const sbl::BuildingPlan& plan)
 
     Mesh building;
     AddLotMesh(building, plan);
+    AddPilotisCore(building, fp.base, plan, pilotisHeight);
 
     bool addedCurtain = false;
     for(int f=0;f<plan.totalFloors;f++){
@@ -228,7 +286,6 @@ Mesh BuildMidcenturyBuilding(const sbl::BuildingPlan& plan)
         if(plan.usePodiumTower && !plan.useLShape && f >= plan.podiumFloors){
             floorFp = fp.towerBase;
         }
-
         float z = pilotisHeight + f * plan.floorH;
         AddFloorSlab(building, floorFp, z, plan, f == plan.totalFloors - 1, f);
 

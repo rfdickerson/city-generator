@@ -80,6 +80,9 @@ struct SemanticDecisions {
     bool useLShape = false;
     float lCutX = 0.0f;
     float lCutY = 0.0f;
+    bool forceFootprintAspect = false;
+    float footprintAspect = 1.0f;
+    bool roofDeckEnclosed = false;
     std::string style;
 };
 
@@ -112,9 +115,6 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
     decisions->enablePilotis = city.disablePilotis ? false : rng.Chance(city.pilotisChance);
 
     decisions->useLShape = rng.Chance(city.lShapeChance);
-    if(decisions->style == "midcentury"){
-        decisions->useLShape = false;
-    }
     if(decisions->useLShape){
         decisions->lCutX = rng.Range(4.0f, 8.0f);
         decisions->lCutY = rng.Range(3.0f, 7.0f);
@@ -123,6 +123,7 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
     decisions->usePodiumTower = false;
     decisions->podiumFloors = DefaultConfig().podiumFloors;
     decisions->towerInset = DefaultConfig().towerInset;
+    decisions->roofDeckEnclosed = rng.Chance(0.35f);
 
     sbl::BuildingSemantics sem{};
     sem.use = sbl::BuildingUse::Office;
@@ -140,6 +141,25 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
     return sem;
 }
 
+static void ApplyFootprintAspectDecision(const Polygon2D& lot, Rng& rng, SemanticDecisions* decisions)
+{
+    if(!decisions){
+        return;
+    }
+
+    OBB2D obb = ComputeOBB(lot);
+    if(obb.halfX <= 1e-4f || obb.halfY <= 1e-4f){
+        return;
+    }
+
+    float aspect = std::max(obb.halfX, obb.halfY) / std::min(obb.halfX, obb.halfY);
+    float chance = (aspect > 1.2f) ? 0.6f : 0.35f;
+    if(rng.Chance(chance)){
+        decisions->forceFootprintAspect = true;
+        decisions->footprintAspect = 2.0f;
+    }
+}
+
 static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polygon2D& lot,
                                              Vec2 lotBiasDir,
                                              const sbl::BuildingSemantics& sem,
@@ -155,6 +175,8 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.lotSnap = 0.5f;
     plan.lotBiasDir = lotBiasDir;
     plan.lotBias = (Length(lotBiasDir) > 1e-4f) ? 0.7f : 0.0f;
+    plan.forceFootprintAspect = decisions.forceFootprintAspect;
+    plan.footprintAspect = decisions.footprintAspect;
     plan.totalFloors = decisions.floors;
     plan.floorH = defaults.floorH;
     plan.slabT = defaults.slabT;
@@ -174,6 +196,7 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.roofCapOverhang = defaults.roofCapOverhang;
     plan.roofDeckT = defaults.roofDeckT;
     plan.roofDeckInset = defaults.roofDeckInset;
+    plan.roofDeckEnclosed = decisions.roofDeckEnclosed;
     plan.curtainInset = defaults.curtainInset;
     plan.curtainEvery = 1;
     plan.curtainBandFloors = 1;
@@ -195,6 +218,10 @@ BuildingFootprints ComputeBuildingFootprints(const sbl::BuildingPlan& plan)
 {
     BuildingFootprints fp;
     fp.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap, plan.lotBiasDir, plan.lotBias);
+    if(plan.forceFootprintAspect && plan.footprintAspect > 1.01f){
+        float minShortHalf = std::max(2.0f, plan.lotSnap * 2.0f);
+        fp.baseRect = EnforceRectAspect(fp.baseRect, plan.footprintAspect, minShortHalf);
+    }
     fp.base = fp.baseRect;
     if(plan.useLShape){
         fp.base = MakeLShapeFootprint(fp.baseRect, plan.lCutX, plan.lCutY);
@@ -517,6 +544,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            ApplyFootprintAspectDecision(south, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, {0.0f, -1.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
@@ -548,6 +576,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            ApplyFootprintAspectDecision(north, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, {0.0f, 1.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
@@ -585,6 +614,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            ApplyFootprintAspectDecision(west, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, {-1.0f, 0.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
@@ -616,6 +646,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
+            ApplyFootprintAspectDecision(east, rng, &decisions);
             sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, {1.0f, 0.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors

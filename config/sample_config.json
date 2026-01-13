@@ -15,7 +15,7 @@
   "usePodiumTower": false,
   "podiumFloors": 2,
   "towerInset": 2.5,
-  "useLShape": false,
+  "useLShape": true,
   "lCutX": 6.0,
   "lCutY": 4.0,
   "roofCapT": 0.6,

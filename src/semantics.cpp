@@ -47,6 +47,8 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.lotSnap = cfg.lotSnap;
     plan.lotBiasDir = {0.0f, 0.0f};
     plan.lotBias = 0.0f;
+    plan.forceFootprintAspect = false;
+    plan.footprintAspect = 1.0f;
     plan.totalFloors = cfg.floors;
     plan.floorH = cfg.floorH;
     plan.slabT = cfg.slabT;
@@ -66,6 +68,7 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.roofCapOverhang = cfg.roofCapOverhang;
     plan.roofDeckT = cfg.roofDeckT;
     plan.roofDeckInset = cfg.roofDeckInset;
+    plan.roofDeckEnclosed = false;
     plan.curtainInset = cfg.curtainInset;
     plan.curtainEvery = cfg.curtainEvery;
     plan.curtainBandFloors = cfg.curtainBandFloors;

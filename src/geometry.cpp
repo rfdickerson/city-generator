@@ -222,8 +222,22 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep, Vec
     OBB2D obb = ComputeOBB(lot);
     Vec2 center = Centroid(lot);
 
-    float halfX = std::max(0.0f, obb.halfX - shrink);
-    float halfY = std::max(0.0f, obb.halfY - shrink);
+    float shrinkX = shrink;
+    float shrinkY = shrink;
+    if(obb.halfX > 1e-4f && obb.halfY > 1e-4f){
+        float aspect = std::max(obb.halfX, obb.halfY) / std::min(obb.halfX, obb.halfY);
+        if(aspect > 1.35f){
+            // Keep elongated lots feeling long by relaxing the setback on the long axis.
+            if(obb.halfX >= obb.halfY){
+                shrinkX *= 0.5f;
+            }else{
+                shrinkY *= 0.5f;
+            }
+        }
+    }
+
+    float halfX = std::max(0.0f, obb.halfX - shrinkX);
+    float halfY = std::max(0.0f, obb.halfY - shrinkY);
 
     if(snapStep > 0.0f){
         halfX = std::floor(halfX / snapStep) * snapStep;
@@ -297,6 +311,39 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep, Vec
 Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
 {
     return PlaceRectInLot(lot, shrink, snapStep, {0.0f, 0.0f}, 0.0f);
+}
+
+Polygon2D EnforceRectAspect(const Polygon2D& rect, float targetAspect, float minShortHalf)
+{
+    if(targetAspect <= 1.01f || rect.v.size() < 4){
+        return rect;
+    }
+    Vec2 center = Centroid(rect);
+    Vec2 axisX = Normalize({rect.v[0].x-rect.v[1].x, rect.v[0].y-rect.v[1].y});
+    Vec2 axisY = Normalize({rect.v[1].x-rect.v[2].x, rect.v[1].y-rect.v[2].y});
+    float halfX = 0.5f * Length({rect.v[0].x-rect.v[1].x, rect.v[0].y-rect.v[1].y});
+    float halfY = 0.5f * Length({rect.v[1].x-rect.v[2].x, rect.v[1].y-rect.v[2].y});
+    bool longIsX = halfX >= halfY;
+    float longHalf = longIsX ? halfX : halfY;
+    float shortHalf = longIsX ? halfY : halfX;
+    float targetShort = longHalf / targetAspect;
+    float newShort = std::max(minShortHalf, targetShort);
+    if(newShort >= shortHalf){
+        return rect;
+    }
+    if(longIsX){
+        halfY = newShort;
+    }else{
+        halfX = newShort;
+    }
+    Vec2 ax = axisX * halfX;
+    Vec2 ay = axisY * halfY;
+    return Polygon2D {{
+        center + ax + ay,
+        center - ax + ay,
+        center - ax - ay,
+        center + ax - ay
+    }};
 }
 
 Polygon2D MakeLShapeFootprint(const Polygon2D& baseRect, float cutX, float cutY)

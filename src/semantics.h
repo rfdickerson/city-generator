@@ -145,6 +145,8 @@ struct BuildingPlan {
     float lotSnap;
     Vec2 lotBiasDir;
     float lotBias;
+    bool forceFootprintAspect;
+    float footprintAspect;
     int totalFloors;
     float floorH;
     float slabT;
@@ -164,6 +166,7 @@ struct BuildingPlan {
     float roofCapOverhang;
     float roofDeckT;
     float roofDeckInset;
+    bool roofDeckEnclosed;
     float curtainInset;
     int curtainEvery;
     int curtainBandFloors;

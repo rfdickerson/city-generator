@@ -1,4 +1,5 @@
 {
+  "style": "midcentury",
   "lot": [[-18, -12], [18, -12], [22, 10], [-14, 14]],
   "lotShrink": 5.0,
   "lotSnap": 0.5,

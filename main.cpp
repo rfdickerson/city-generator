@@ -3,6 +3,7 @@
 #include "config.h"
 #include "io.h"
 #include "style_midcentury.h"
+#include "style_brutalist.h"
 
 int main(int argc, char** argv)
 {
@@ -14,7 +15,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    Mesh building = BuildMidcenturyBuilding(cfg);
+    Mesh building;
+    if(cfg.style == "brutalist"){
+        building = BuildBrutalistBuilding(cfg);
+    }else{
+        building = BuildMidcenturyBuilding(cfg);
+    }
 
     WriteOBJ("simcity_midcentury_office.obj",building);
     WriteGLTF("simcity_midcentury_office.gltf",building);

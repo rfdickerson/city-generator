@@ -14,6 +14,8 @@ add_executable(buildings
     mesh.cpp
     style_midcentury.h
     style_midcentury.cpp
+    style_brutalist.h
+    style_brutalist.cpp
     io.h
     io.cpp
     json.h

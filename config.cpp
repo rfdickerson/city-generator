@@ -8,6 +8,7 @@
 Config DefaultConfig()
 {
     Config c{};
+    c.style = "midcentury";
     c.lot = {{
         {-18,-12},{18,-12},{22,10},{-14,14}
     }};
@@ -95,6 +96,14 @@ static bool GetBool(const JsonValue& obj, const char* key, bool* out)
     return true;
 }
 
+static bool GetString(const JsonValue& obj, const char* key, std::string* out)
+{
+    const JsonValue* v = FindKey(obj, key);
+    if(!v || v->type != JsonValue::Type::String) return false;
+    *out = v->str;
+    return true;
+}
+
 static bool GetVec3(const JsonValue& obj, const char* key, Vec3* out)
 {
     const JsonValue* v = FindKey(obj, key);
@@ -147,6 +156,7 @@ bool LoadConfig(const char* path, Config* out, std::string* err)
     }
 
     GetLot(root, "lot", &out->lot);
+    GetString(root, "style", &out->style);
     GetNumber(root, "lotShrink", &out->lotShrink);
     GetNumber(root, "lotSnap", &out->lotSnap);
 

@@ -4,6 +4,7 @@
 #include "geometry.h"
 
 struct Config {
+    std::string style;
     Polygon2D lot;
     float lotShrink;
     float lotSnap;

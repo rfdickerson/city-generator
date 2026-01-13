@@ -50,7 +50,7 @@ sbl::SlabRole RoleForFloor(const sbl::BuildingPlan& plan, int floor)
 Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
 {
     Footprints f;
-    f.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap);
+    f.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap, plan.lotBiasDir, plan.lotBias);
     f.base = f.baseRect;
     if(plan.useLShape){
         f.base = MakeLShapeFootprint(f.baseRect, plan.lCutX, plan.lCutY);

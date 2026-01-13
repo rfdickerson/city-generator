@@ -143,6 +143,8 @@ struct BuildingPlan {
     std::string style;
     float lotShrink;
     float lotSnap;
+    Vec2 lotBiasDir;
+    float lotBias;
     int totalFloors;
     float floorH;
     float slabT;

@@ -45,6 +45,8 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.lot = cfg.lot;
     plan.lotShrink = cfg.lotShrink;
     plan.lotSnap = cfg.lotSnap;
+    plan.lotBiasDir = {0.0f, 0.0f};
+    plan.lotBias = 0.0f;
     plan.totalFloors = cfg.floors;
     plan.floorH = cfg.floorH;
     plan.slabT = cfg.slabT;

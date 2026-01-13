@@ -217,7 +217,7 @@ OBB2D ComputeOBB(const Polygon2D& poly)
     return best;
 }
 
-Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
+Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep, Vec2 biasDir, float biasStrength)
 {
     OBB2D obb = ComputeOBB(lot);
     Vec2 center = Centroid(lot);
@@ -230,13 +230,13 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
         halfY = std::floor(halfY / snapStep) * snapStep;
     }
 
-    auto cornersInside = [&](float hx, float hy){
+    auto cornersInside = [&](float hx, float hy, Vec2 c){
         Vec2 ax = obb.axisX * hx;
         Vec2 ay = obb.axisY * hy;
-        Vec2 c0 = center + ax + ay;
-        Vec2 c1 = center + ax - ay;
-        Vec2 c2 = center - ax - ay;
-        Vec2 c3 = center - ax + ay;
+        Vec2 c0 = c + ax + ay;
+        Vec2 c1 = c + ax - ay;
+        Vec2 c2 = c - ax - ay;
+        Vec2 c3 = c - ax + ay;
         return PointInConvexCCW(lot, c0) &&
                PointInConvexCCW(lot, c1) &&
                PointInConvexCCW(lot, c2) &&
@@ -245,11 +245,39 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
 
     float step = snapStep > 0.0f ? snapStep : 0.25f;
     int guard = 0;
-    while(guard++ < 200 && !cornersInside(halfX, halfY)){
+    while(guard++ < 200 && !cornersInside(halfX, halfY, center)){
         halfX = std::max(0.0f, halfX - step);
         halfY = std::max(0.0f, halfY - step);
         if(halfX <= 0.0f || halfY <= 0.0f){
             break;
+        }
+    }
+
+    float biasLen = Length(biasDir);
+    if(biasLen > 1e-4f && biasStrength > 0.0f){
+        Vec2 dir = {biasDir.x / biasLen, biasDir.y / biasLen};
+        float slackX = std::max(0.0f, obb.halfX - halfX);
+        float slackY = std::max(0.0f, obb.halfY - halfY);
+        float maxShift = std::numeric_limits<float>::max();
+        float dx = Dot(dir, obb.axisX);
+        float dy = Dot(dir, obb.axisY);
+        const float eps = 1e-4f;
+        if(std::fabs(dx) > eps){
+            maxShift = std::min(maxShift, slackX / std::fabs(dx));
+        }
+        if(std::fabs(dy) > eps){
+            maxShift = std::min(maxShift, slackY / std::fabs(dy));
+        }
+        if(maxShift != std::numeric_limits<float>::max()){
+            float strength = std::max(0.0f, std::min(1.0f, biasStrength));
+            float shift = strength * maxShift;
+            Vec2 biasedCenter = center + dir * shift;
+            int biasGuard = 0;
+            while(biasGuard++ < 20 && !cornersInside(halfX, halfY, biasedCenter)){
+                shift *= 0.5f;
+                biasedCenter = center + dir * shift;
+            }
+            center = biasedCenter;
         }
     }
 
@@ -264,6 +292,11 @@ Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
     }};
 
     return rect;
+}
+
+Polygon2D PlaceRectInLot(const Polygon2D& lot, float shrink, float snapStep)
+{
+    return PlaceRectInLot(lot, shrink, snapStep, {0.0f, 0.0f}, 0.0f);
 }
 
 Polygon2D MakeLShapeFootprint(const Polygon2D& baseRect, float cutX, float cutY)

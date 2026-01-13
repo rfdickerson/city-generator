@@ -141,6 +141,7 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
 }
 
 static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polygon2D& lot,
+                                             Vec2 lotBiasDir,
                                              const sbl::BuildingSemantics& sem,
                                              const SemanticDecisions& decisions)
 {
@@ -152,6 +153,8 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.style = decisions.style;
     plan.lotShrink = city.lotSetback;
     plan.lotSnap = 0.5f;
+    plan.lotBiasDir = lotBiasDir;
+    plan.lotBias = (Length(lotBiasDir) > 1e-4f) ? 0.7f : 0.0f;
     plan.totalFloors = decisions.floors;
     plan.floorH = defaults.floorH;
     plan.slabT = defaults.slabT;
@@ -191,7 +194,7 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
 BuildingFootprints ComputeBuildingFootprints(const sbl::BuildingPlan& plan)
 {
     BuildingFootprints fp;
-    fp.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap);
+    fp.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap, plan.lotBiasDir, plan.lotBias);
     fp.base = fp.baseRect;
     if(plan.useLShape){
         fp.base = MakeLShapeFootprint(fp.baseRect, plan.lCutX, plan.lCutY);
@@ -514,7 +517,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, sem, decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, {0.0f, -1.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
@@ -545,7 +548,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, sem, decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, {0.0f, 1.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
@@ -582,7 +585,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, sem, decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, {-1.0f, 0.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
@@ -613,7 +616,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, sem, decisions);
+            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, {1.0f, 0.0f}, sem, decisions);
             std::cout << "Building " << plan.style
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)

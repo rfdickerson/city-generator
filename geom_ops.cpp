@@ -38,7 +38,7 @@ Mesh Extrude(const Polygon2D& poly, float z0, float z1)
     }
     float thickness = z1 - z0;
     Vec3 color{0.6f, 0.6f, 0.6f};
-    return BuildSlab({poly, z0, thickness}, color, 0.02f);
+    return BuildSlab({poly, z0, thickness}, color, 0.02f, SlabRole::Office);
 }
 
 Mesh MakeBox(Vec3 min, Vec3 max)

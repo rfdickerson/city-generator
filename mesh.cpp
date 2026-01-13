@@ -48,17 +48,62 @@ void AddBox(Mesh& m,
 
 Mesh BuildSlab(const FloorSlab& s, Vec3 baseColor, float uvScale)
 {
+    return BuildSlab(s, baseColor, uvScale, SlabRole::Office);
+}
+
+static float Clamp01(float v)
+{
+    return std::max(0.0f, std::min(1.0f, v));
+}
+
+static Vec3 Tint(Vec3 c, float mul)
+{
+    return {Clamp01(c.x * mul), Clamp01(c.y * mul), Clamp01(c.z * mul)};
+}
+
+struct RoleStyle {
+    float colorMul;
+    float aoTop;
+    float aoBottom;
+    float thicknessMul;
+};
+
+static RoleStyle StyleForRole(SlabRole role)
+{
+    switch(role){
+    case SlabRole::Infrastructure:
+        return {0.85f, 0.75f, 0.45f, 0.70f};
+    case SlabRole::Podium:
+        return {1.00f, 1.00f, 0.65f, 1.25f};
+    case SlabRole::Public:
+        return {0.95f, 0.90f, 0.55f, 0.85f};
+    case SlabRole::Terrace:
+        return {1.05f, 1.00f, 0.60f, 0.65f};
+    case SlabRole::Roof:
+        return {1.05f, 1.00f, 0.70f, 1.35f};
+    case SlabRole::Office:
+    default:
+        return {1.00f, 1.00f, 0.60f, 1.00f};
+    }
+}
+
+Mesh BuildSlab(const FloorSlab& s, Vec3 baseColor, float uvScale, SlabRole role)
+{
     Mesh m;
     int n = (int)s.footprint.v.size();
 
+    RoleStyle style = StyleForRole(role);
+    Vec3 tint = Tint(baseColor, style.colorMul);
+    float thickness = s.thickness * style.thicknessMul;
+
     float z0 = s.z;
-    float z1 = s.z + s.thickness;
+    float z1 = s.z + thickness;
 
     // --- Bottom (underside, darker AO) ---
     for(auto& p : s.footprint.v){
         m.v.push_back({
             {p.x, z0, p.y},
-            {baseColor.x, baseColor.y, baseColor.z, 0.60f},
+            {tint.x, tint.y, tint.z, style.aoBottom},
             {p.x*uvScale, p.y*uvScale}
         });
     }
@@ -67,7 +112,7 @@ Mesh BuildSlab(const FloorSlab& s, Vec3 baseColor, float uvScale)
     for(auto& p : s.footprint.v){
         m.v.push_back({
             {p.x, z1, p.y},
-            {baseColor.x, baseColor.y, baseColor.z, 1.00f},
+            {tint.x, tint.y, tint.z, style.aoTop},
             {p.x*uvScale, p.y*uvScale}
         });
     }

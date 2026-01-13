@@ -8,6 +8,7 @@ struct Config {
     Polygon2D lot;
     float lotShrink;
     float lotSnap;
+    bool showLot;
 
     int floors;
     float floorH;
@@ -35,6 +36,8 @@ struct Config {
     float roofDeckInset;
 
     float curtainInset;
+    int curtainEvery;
+    int curtainBandFloors;
 
     Vec3 concrete;
     Vec3 window;

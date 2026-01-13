@@ -14,6 +14,7 @@ Config DefaultConfig()
     }};
     c.lotShrink = 5.0f;
     c.lotSnap = 0.5f;
+    c.showLot = true;
 
     c.floors = 4;
     c.floorH = 3.6f;
@@ -41,6 +42,8 @@ Config DefaultConfig()
     c.roofDeckInset = 1.0f;
 
     c.curtainInset = 0.80f;
+    c.curtainEvery = 3;
+    c.curtainBandFloors = 3;
 
     c.concrete = {0.55f,0.56f,0.57f};
     c.window   = {0.10f,0.65f,0.95f};
@@ -159,6 +162,7 @@ bool LoadConfig(const char* path, Config* out, std::string* err)
     GetString(root, "style", &out->style);
     GetNumber(root, "lotShrink", &out->lotShrink);
     GetNumber(root, "lotSnap", &out->lotSnap);
+    GetBool(root, "showLot", &out->showLot);
 
     GetInt(root, "floors", &out->floors);
     GetNumber(root, "floorH", &out->floorH);
@@ -186,6 +190,8 @@ bool LoadConfig(const char* path, Config* out, std::string* err)
     GetNumber(root, "roofDeckInset", &out->roofDeckInset);
 
     GetNumber(root, "curtainInset", &out->curtainInset);
+    GetInt(root, "curtainEvery", &out->curtainEvery);
+    GetInt(root, "curtainBandFloors", &out->curtainBandFloors);
 
     GetVec3(root, "concrete", &out->concrete);
     GetVec3(root, "window", &out->window);

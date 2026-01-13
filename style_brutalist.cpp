@@ -36,13 +36,16 @@ float ComputePilotisHeight(const Config& cfg)
 
 void AddLotMesh(Mesh& out, const Config& cfg)
 {
-    Mesh lotMesh = BuildSlab({cfg.lot,-0.25f,0.25f},cfg.lotFill,0.03f);
+    if(!cfg.showLot){
+        return;
+    }
+    Mesh lotMesh = BuildSlab({cfg.lot,-0.25f,0.25f},cfg.lotFill,0.03f, SlabRole::Public);
     Append(out, lotMesh);
 }
 
 void AddFloorSlab(Mesh& out, const Polygon2D& fp, float z, const Config& cfg)
 {
-    Mesh slab = BuildSlab({fp,z,cfg.slabT},cfg.concrete,0.02f);
+    Mesh slab = BuildSlab({fp,z,cfg.slabT},cfg.concrete,0.02f, SlabRole::Office);
     Append(out, slab);
 }
 
@@ -52,7 +55,7 @@ void AddPodiumRoof(Mesh& out, const Polygon2D& base, float pilotisHeight, const 
         return;
     }
     float podiumZ = pilotisHeight + cfg.podiumFloors * cfg.floorH - 0.02f;
-    Mesh podiumRoof = BuildSlab({base,podiumZ,0.35f},cfg.concrete,0.02f);
+    Mesh podiumRoof = BuildSlab({base,podiumZ,0.35f},cfg.concrete,0.02f, SlabRole::Podium);
     Append(out, podiumRoof);
 }
 
@@ -91,7 +94,7 @@ void AddRoofCap(Mesh& out, const Polygon2D& capBase, float totalHeight, const Co
     float capT = std::max(cfg.roofCapT, cfg.slabT * 1.25f);
     Polygon2D capFp = cfg.useLShape ? capBase : OutsetFromCentroid(capBase, cfg.roofCapOverhang);
     float capZ = totalHeight - capT;
-    Mesh cap = BuildSlab({capFp,capZ,capT},cfg.concrete,0.02f);
+    Mesh cap = BuildSlab({capFp,capZ,capT},cfg.concrete,0.02f, SlabRole::Roof);
     Append(out, cap);
 }
 

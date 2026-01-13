@@ -23,6 +23,8 @@
   "roofDeckT": 0.15,
   "roofDeckInset": 1.0,
   "curtainInset": 0.8,
+  "curtainEvery": 3,
+  "curtainBandFloors": 3,
   "concrete": [0.55, 0.56, 0.57],
   "window": [0.10, 0.65, 0.95],
   "roofDeck": [0.62, 0.62, 0.64],

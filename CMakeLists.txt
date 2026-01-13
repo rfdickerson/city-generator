@@ -24,6 +24,31 @@ add_executable(buildings
     config.cpp
 )
 
+add_executable(city_builder
+    city_main.cpp
+    city_builder.h
+    city_builder.cpp
+    city_config.h
+    city_config.cpp
+    math.h
+    geometry.h
+    geometry.cpp
+    geom_ops.h
+    geom_ops.cpp
+    mesh.h
+    mesh.cpp
+    style_midcentury.h
+    style_midcentury.cpp
+    style_brutalist.h
+    style_brutalist.cpp
+    io.h
+    io.cpp
+    json.h
+    json.cpp
+    config.h
+    config.cpp
+)
+
 enable_testing()
 
 add_test(

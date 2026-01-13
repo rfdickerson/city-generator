@@ -14,9 +14,21 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    Mesh city = BuildCityMesh(cfg);
-    WriteGLTF("commercial_blocks.gltf", city);
-    WriteOBJ("commercial_blocks.obj", city);
-    std::cout << "Wrote commercial_blocks.gltf and commercial_blocks.obj\n";
+    CityBuild city = BuildCity(cfg);
+    if(cfg.emitPropsInGltf && cfg.emitTreesInGltf){
+        WriteGLTF("commercial_blocks.gltf", city.mesh, city.trees, city.props);
+    }else if(cfg.emitTreesInGltf){
+        WriteGLTF("commercial_blocks.gltf", city.mesh, city.trees);
+    }else if(cfg.emitPropsInGltf){
+        std::vector<TreeInstance> noTrees;
+        WriteGLTF("commercial_blocks.gltf", city.mesh, noTrees, city.props);
+    }else{
+        WriteGLTF("commercial_blocks.gltf", city.mesh);
+    }
+    WriteOBJ("commercial_blocks.obj", city.mesh);
+    WriteTreeInstancesJson("commercial_blocks_trees.json", city.trees);
+    WritePropInstancesJson("commercial_blocks_props.json", city.props);
+    std::cout << "Wrote commercial_blocks.gltf, commercial_blocks.obj, commercial_blocks_trees.json, "
+              << "and commercial_blocks_props.json\n";
     return 0;
 }

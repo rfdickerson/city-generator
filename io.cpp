@@ -51,7 +51,50 @@ static std::string ReplaceExtension(const std::string& path, const char* ext)
     return path.substr(0, dot) + ext;
 }
 
+static std::string EscapeJsonString(const std::string& text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for(char c : text){
+        switch(c){
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            out += c;
+            break;
+        }
+    }
+    return out;
+}
+
 void WriteGLTF(const char* path, const Mesh& m)
+{
+    std::vector<TreeInstance> empty;
+    std::vector<PropInstance> emptyProps;
+    WriteGLTF(path, m, empty, emptyProps);
+}
+
+void WriteGLTF(const char* path, const Mesh& m, const std::vector<TreeInstance>& trees)
+{
+    std::vector<PropInstance> emptyProps;
+    WriteGLTF(path, m, trees, emptyProps);
+}
+
+void WriteGLTF(const char* path, const Mesh& m, const std::vector<TreeInstance>& trees,
+               const std::vector<PropInstance>& props)
 {
     std::string gltfPath(path);
     std::string binPath = ReplaceExtension(gltfPath, ".bin");
@@ -141,11 +184,74 @@ void WriteGLTF(const char* path, const Mesh& m)
         "    ]}\n"
         "  ],\n"
         "  \"nodes\": [\n"
-        "    {\"mesh\": 0}\n"
+        "    {\"mesh\": 0}";
+    for(const auto& tree : trees){
+        std::string variant = EscapeJsonString(tree.variant);
+        jout << ",\n"
+             << "    {\"translation\": [" << tree.position.x << ", " << tree.position.y << ", "
+             << tree.position.z << "], \"extras\": {\"spawnType\": \"tree\", \"variant\": \""
+             << variant << "\"}}";
+    }
+    for(const auto& prop : props){
+        std::string type = EscapeJsonString(prop.type);
+        jout << ",\n"
+             << "    {\"translation\": [" << prop.position.x << ", " << prop.position.y << ", "
+             << prop.position.z << "], \"extras\": {\"spawnType\": \"prop\", \"propType\": \""
+             << type << "\"}}";
+    }
+    jout <<
+        "\n"
         "  ],\n"
         "  \"scenes\": [\n"
-        "    {\"nodes\": [0]}\n"
+        "    {\"nodes\": [";
+    size_t nodeCount = trees.size() + props.size() + 1;
+    for(size_t i=0;i<nodeCount;i++){
+        if(i) jout << ", ";
+        jout << i;
+    }
+    jout <<
+        "]}\n"
         "  ],\n"
         "  \"scene\": 0\n"
         "}\n";
+}
+
+void WriteTreeInstancesJson(const char* path, const std::vector<TreeInstance>& trees)
+{
+    std::ofstream out(path);
+    out << "{\n"
+        << "  \"space\": \"world\",\n"
+        << "  \"trees\": [\n";
+    for(size_t i=0;i<trees.size();i++){
+        const auto& tree = trees[i];
+        std::string variant = EscapeJsonString(tree.variant);
+        out << "    {\"variant\": \"" << variant << "\", \"position\": ["
+            << tree.position.x << ", " << tree.position.y << ", " << tree.position.z << "]}";
+        if(i + 1 < trees.size()){
+            out << ",";
+        }
+        out << "\n";
+    }
+    out << "  ]\n"
+        << "}\n";
+}
+
+void WritePropInstancesJson(const char* path, const std::vector<PropInstance>& props)
+{
+    std::ofstream out(path);
+    out << "{\n"
+        << "  \"space\": \"world\",\n"
+        << "  \"props\": [\n";
+    for(size_t i=0;i<props.size();i++){
+        const auto& prop = props[i];
+        std::string type = EscapeJsonString(prop.type);
+        out << "    {\"type\": \"" << type << "\", \"position\": ["
+            << prop.position.x << ", " << prop.position.y << ", " << prop.position.z << "]}";
+        if(i + 1 < props.size()){
+            out << ",";
+        }
+        out << "\n";
+    }
+    out << "  ]\n"
+        << "}\n";
 }

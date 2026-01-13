@@ -33,6 +33,38 @@ CityConfig DefaultCityConfig()
     c.lShapeChance = 0.30f;
 
     c.styles = {"midcentury", "brutalist"};
+    c.treeVariants = {"maple", "oak", "pine"};
+    c.treeSpacing = 6.0f;
+    c.treeInset = 2.0f;
+    c.treeJitter = 0.75f;
+    c.treeChance = 0.75f;
+    c.emitTreesInGltf = false;
+
+    c.rooftopAcSpacing = 6.0f;
+    c.rooftopAcInset = 2.0f;
+    c.rooftopAcJitter = 0.5f;
+    c.rooftopAcChance = 0.6f;
+
+    c.streetBinSpacing = 12.0f;
+    c.streetBinOffset = 1.2f;
+    c.streetBinJitter = 0.4f;
+    c.streetBinChance = 0.5f;
+
+    c.streetLightSpacing = 24.0f;
+    c.streetLightOffset = 0.8f;
+    c.streetLightChance = 0.7f;
+
+    c.parkBenchSpacing = 10.0f;
+    c.parkBenchInset = 2.5f;
+    c.parkBenchJitter = 0.6f;
+    c.parkBenchChance = 0.6f;
+
+    c.parkingCarSpacing = 5.5f;
+    c.parkingCarInset = 1.5f;
+    c.parkingCarJitter = 0.35f;
+    c.parkingCarChance = 0.75f;
+
+    c.emitPropsInGltf = false;
 
     c.roadColor = {0.12f, 0.12f, 0.12f};
     c.lotColor = {0.18f, 0.28f, 0.18f};
@@ -167,6 +199,39 @@ bool LoadCityConfig(const char* path, CityConfig* out, std::string* err)
     GetNumber(root, "lShapeChance", &out->lShapeChance);
 
     GetStringArray(root, "styles", &out->styles);
+    GetStringArray(root, "treeVariants", &out->treeVariants);
+
+    GetNumber(root, "treeSpacing", &out->treeSpacing);
+    GetNumber(root, "treeInset", &out->treeInset);
+    GetNumber(root, "treeJitter", &out->treeJitter);
+    GetNumber(root, "treeChance", &out->treeChance);
+    GetBool(root, "emitTreesInGltf", &out->emitTreesInGltf);
+
+    GetNumber(root, "rooftopAcSpacing", &out->rooftopAcSpacing);
+    GetNumber(root, "rooftopAcInset", &out->rooftopAcInset);
+    GetNumber(root, "rooftopAcJitter", &out->rooftopAcJitter);
+    GetNumber(root, "rooftopAcChance", &out->rooftopAcChance);
+
+    GetNumber(root, "streetBinSpacing", &out->streetBinSpacing);
+    GetNumber(root, "streetBinOffset", &out->streetBinOffset);
+    GetNumber(root, "streetBinJitter", &out->streetBinJitter);
+    GetNumber(root, "streetBinChance", &out->streetBinChance);
+
+    GetNumber(root, "streetLightSpacing", &out->streetLightSpacing);
+    GetNumber(root, "streetLightOffset", &out->streetLightOffset);
+    GetNumber(root, "streetLightChance", &out->streetLightChance);
+
+    GetNumber(root, "parkBenchSpacing", &out->parkBenchSpacing);
+    GetNumber(root, "parkBenchInset", &out->parkBenchInset);
+    GetNumber(root, "parkBenchJitter", &out->parkBenchJitter);
+    GetNumber(root, "parkBenchChance", &out->parkBenchChance);
+
+    GetNumber(root, "parkingCarSpacing", &out->parkingCarSpacing);
+    GetNumber(root, "parkingCarInset", &out->parkingCarInset);
+    GetNumber(root, "parkingCarJitter", &out->parkingCarJitter);
+    GetNumber(root, "parkingCarChance", &out->parkingCarChance);
+
+    GetBool(root, "emitPropsInGltf", &out->emitPropsInGltf);
 
     GetVec3(root, "roadColor", &out->roadColor);
     GetVec3(root, "lotColor", &out->lotColor);

@@ -31,6 +31,39 @@ struct CityConfig {
     float lShapeChance;
 
     std::vector<std::string> styles;
+    std::vector<std::string> treeVariants;
+
+    float treeSpacing;
+    float treeInset;
+    float treeJitter;
+    float treeChance;
+    bool emitTreesInGltf;
+
+    float rooftopAcSpacing;
+    float rooftopAcInset;
+    float rooftopAcJitter;
+    float rooftopAcChance;
+
+    float streetBinSpacing;
+    float streetBinOffset;
+    float streetBinJitter;
+    float streetBinChance;
+
+    float streetLightSpacing;
+    float streetLightOffset;
+    float streetLightChance;
+
+    float parkBenchSpacing;
+    float parkBenchInset;
+    float parkBenchJitter;
+    float parkBenchChance;
+
+    float parkingCarSpacing;
+    float parkingCarInset;
+    float parkingCarJitter;
+    float parkingCarChance;
+
+    bool emitPropsInGltf;
 
     Vec3 roadColor;
     Vec3 lotColor;

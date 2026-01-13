@@ -1,6 +1,7 @@
 #include "city_builder.h"
 
 #include <iostream>
+#include <limits>
 #include <random>
 
 #include "config.h"
@@ -17,6 +18,8 @@ struct BuildStats {
     int parkCount = 0;
     int parkingCount = 0;
     int lotCount = 0;
+    int treeCount = 0;
+    int propCount = 0;
 };
 
 struct Rng {
@@ -46,6 +49,28 @@ Polygon2D MakeRect(float x, float y, float w, float h)
     return MakeRectangle(center, w, h, 0.0f);
 }
 
+struct Bounds2 {
+    float minX;
+    float minY;
+    float maxX;
+    float maxY;
+};
+
+Bounds2 BoundsOf(const Polygon2D& poly)
+{
+    Bounds2 b{std::numeric_limits<float>::max(),
+              std::numeric_limits<float>::max(),
+              -std::numeric_limits<float>::max(),
+              -std::numeric_limits<float>::max()};
+    for(const auto& p : poly.v){
+        b.minX = std::min(b.minX, p.x);
+        b.minY = std::min(b.minY, p.y);
+        b.maxX = std::max(b.maxX, p.x);
+        b.maxY = std::max(b.maxY, p.y);
+    }
+    return b;
+}
+
 struct SemanticDecisions {
     int floors = 0;
     bool enablePilotis = false;
@@ -56,6 +81,12 @@ struct SemanticDecisions {
     float lCutX = 0.0f;
     float lCutY = 0.0f;
     std::string style;
+};
+
+struct BuildingFootprints {
+    Polygon2D baseRect;
+    Polygon2D base;
+    Polygon2D towerBase;
 };
 
 static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng& rng,
@@ -157,6 +188,26 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     return plan;
 }
 
+BuildingFootprints ComputeBuildingFootprints(const sbl::BuildingPlan& plan)
+{
+    BuildingFootprints fp;
+    fp.baseRect = PlaceRectInLot(plan.lot, plan.lotShrink, plan.lotSnap);
+    fp.base = fp.baseRect;
+    if(plan.useLShape){
+        fp.base = MakeLShapeFootprint(fp.baseRect, plan.lCutX, plan.lCutY);
+    }
+    fp.towerBase = fp.base;
+    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
+        fp.towerBase = fp.base.Inset(plan.towerInset);
+    }
+    return fp;
+}
+
+float ComputePilotisHeight(const sbl::BuildingPlan& plan)
+{
+    return plan.enablePilotis ? plan.pilotisHeight : 0.0f;
+}
+
 void AddRoads(Mesh& out, const CityConfig& cfg, float totalW, float totalH)
 {
     for(int y=0;y<=cfg.blocksY;y++){
@@ -178,6 +229,54 @@ void AddLotSlab(Mesh& out, const Polygon2D& lot, Vec3 color)
 {
     Mesh slab = BuildSlab({lot,-0.12f,0.08f}, color, 0.03f, SlabRole::Public);
     Append(out, slab);
+}
+
+void EmitTreesInPark(const Polygon2D& park, float groundY, const CityConfig& cfg,
+                     Rng& rng, std::vector<TreeInstance>* trees, BuildStats* stats)
+{
+    if(!trees || cfg.treeVariants.empty()){
+        return;
+    }
+    if(cfg.treeChance <= 0.0f){
+        return;
+    }
+
+    float spacing = std::max(0.1f, cfg.treeSpacing);
+    float inset = std::max(0.0f, cfg.treeInset);
+    float jitter = std::max(0.0f, cfg.treeJitter);
+
+    Bounds2 b = BoundsOf(park);
+    float minX = b.minX + inset;
+    float maxX = b.maxX - inset;
+    float minY = b.minY + inset;
+    float maxY = b.maxY - inset;
+    if(maxX <= minX || maxY <= minY){
+        return;
+    }
+
+    for(float x = minX; x <= maxX + 1e-4f; x += spacing){
+        for(float y = minY; y <= maxY + 1e-4f; y += spacing){
+            if(cfg.treeChance < 1.0f && !rng.Chance(cfg.treeChance)){
+                continue;
+            }
+            Vec2 p{x, y};
+            if(jitter > 0.0f){
+                p.x += rng.Range(-jitter, jitter);
+                p.y += rng.Range(-jitter, jitter);
+                p.x = std::max(minX, std::min(maxX, p.x));
+                p.y = std::max(minY, std::min(maxY, p.y));
+            }
+            if(!PointInPolygon(park, p)){
+                continue;
+            }
+            int variantIndex = rng.RangeInt(0, (int)cfg.treeVariants.size() - 1);
+            TreeInstance inst;
+            inst.position = {p.x, groundY, p.y};
+            inst.variant = cfg.treeVariants[variantIndex];
+            trees->push_back(inst);
+            if(stats) stats->treeCount++;
+        }
+    }
 }
 
 void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by, BuildStats* stats)
@@ -233,11 +332,159 @@ const char* FacadeLabel(sbl::FacadeType facade)
     }
 }
 
-void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng, BuildStats* stats)
+void EmitGridPropsInPolygon(const Polygon2D& area, float height, const char* type,
+                            float spacing, float inset, float jitter, float chance,
+                            Rng& rng, std::vector<PropInstance>* props, BuildStats* stats)
+{
+    if(!props || !type){
+        return;
+    }
+    if(chance <= 0.0f || spacing <= 0.0f){
+        return;
+    }
+    float safeSpacing = std::max(0.1f, spacing);
+    float safeInset = std::max(0.0f, inset);
+    float safeJitter = std::max(0.0f, jitter);
+
+    Bounds2 b = BoundsOf(area);
+    float minX = b.minX + safeInset;
+    float maxX = b.maxX - safeInset;
+    float minY = b.minY + safeInset;
+    float maxY = b.maxY - safeInset;
+    if(maxX <= minX || maxY <= minY){
+        return;
+    }
+
+    for(float x = minX; x <= maxX + 1e-4f; x += safeSpacing){
+        for(float y = minY; y <= maxY + 1e-4f; y += safeSpacing){
+            if(chance < 1.0f && !rng.Chance(chance)){
+                continue;
+            }
+            Vec2 p{x, y};
+            if(safeJitter > 0.0f){
+                p.x += rng.Range(-safeJitter, safeJitter);
+                p.y += rng.Range(-safeJitter, safeJitter);
+                p.x = std::max(minX, std::min(maxX, p.x));
+                p.y = std::max(minY, std::min(maxY, p.y));
+            }
+            if(!PointInPolygon(area, p)){
+                continue;
+            }
+            PropInstance inst;
+            inst.position = {p.x, height, p.y};
+            inst.type = type;
+            props->push_back(inst);
+            if(stats) stats->propCount++;
+        }
+    }
+}
+
+void EmitStreetLineProps(Vec2 start, Vec2 end, Vec2 inward, float offset,
+                         float spacing, float jitter, float chance, const char* type,
+                         Rng& rng, std::vector<PropInstance>* props, BuildStats* stats)
+{
+    if(!props || !type){
+        return;
+    }
+    if(chance <= 0.0f || spacing <= 0.0f){
+        return;
+    }
+    Vec2 dir = Normalize({end.x - start.x, end.y - start.y});
+    float length = Length({end.x - start.x, end.y - start.y});
+    if(length <= 0.01f){
+        return;
+    }
+    float safeSpacing = std::max(0.1f, spacing);
+    float safeJitter = std::max(0.0f, jitter);
+    float safeOffset = std::max(0.0f, offset);
+    float t = safeSpacing * 0.5f;
+    while(t <= length - safeSpacing * 0.5f + 1e-4f){
+        if(chance < 1.0f && !rng.Chance(chance)){
+            t += safeSpacing;
+            continue;
+        }
+        float jitterOffset = safeJitter > 0.0f ? rng.Range(-safeJitter, safeJitter) : 0.0f;
+        float sampleT = std::max(0.0f, std::min(length, t + jitterOffset));
+        Vec2 p = start + dir * sampleT + inward * safeOffset;
+        PropInstance inst;
+        inst.position = {p.x, 0.0f, p.y};
+        inst.type = type;
+        props->push_back(inst);
+        if(stats) stats->propCount++;
+        t += safeSpacing;
+    }
+}
+
+void EmitStreetPropsForBlock(float bx, float by, const CityConfig& cfg, Rng& rng,
+                             std::vector<PropInstance>* props, BuildStats* stats)
+{
+    float minX = bx;
+    float maxX = bx + cfg.blockSizeX;
+    float minY = by;
+    float maxY = by + cfg.blockSizeY;
+
+    Vec2 bl{minX, minY};
+    Vec2 br{maxX, minY};
+    Vec2 tl{minX, maxY};
+    Vec2 tr{maxX, maxY};
+
+    EmitStreetLineProps(bl, br, {0.0f, 1.0f}, cfg.streetBinOffset,
+                        cfg.streetBinSpacing, cfg.streetBinJitter, cfg.streetBinChance,
+                        "trash_bin", rng, props, stats);
+    EmitStreetLineProps(tl, tr, {0.0f, -1.0f}, cfg.streetBinOffset,
+                        cfg.streetBinSpacing, cfg.streetBinJitter, cfg.streetBinChance,
+                        "trash_bin", rng, props, stats);
+    EmitStreetLineProps(bl, tl, {1.0f, 0.0f}, cfg.streetBinOffset,
+                        cfg.streetBinSpacing, cfg.streetBinJitter, cfg.streetBinChance,
+                        "trash_bin", rng, props, stats);
+    EmitStreetLineProps(br, tr, {-1.0f, 0.0f}, cfg.streetBinOffset,
+                        cfg.streetBinSpacing, cfg.streetBinJitter, cfg.streetBinChance,
+                        "trash_bin", rng, props, stats);
+
+    EmitStreetLineProps(bl, br, {0.0f, 1.0f}, cfg.streetLightOffset,
+                        cfg.streetLightSpacing, 0.0f, cfg.streetLightChance,
+                        "street_light", rng, props, stats);
+    EmitStreetLineProps(tl, tr, {0.0f, -1.0f}, cfg.streetLightOffset,
+                        cfg.streetLightSpacing, 0.0f, cfg.streetLightChance,
+                        "street_light", rng, props, stats);
+    EmitStreetLineProps(bl, tl, {1.0f, 0.0f}, cfg.streetLightOffset,
+                        cfg.streetLightSpacing, 0.0f, cfg.streetLightChance,
+                        "street_light", rng, props, stats);
+    EmitStreetLineProps(br, tr, {-1.0f, 0.0f}, cfg.streetLightOffset,
+                        cfg.streetLightSpacing, 0.0f, cfg.streetLightChance,
+                        "street_light", rng, props, stats);
+}
+
+void EmitRooftopProps(const sbl::BuildingPlan& plan, Rng& rng, const CityConfig& cfg,
+                      std::vector<PropInstance>* props, BuildStats* stats)
+{
+    if(!props){
+        return;
+    }
+    BuildingFootprints fp = ComputeBuildingFootprints(plan);
+    Polygon2D roofBase = fp.base;
+    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
+        roofBase = fp.towerBase;
+    }
+    float pilotisHeight = ComputePilotisHeight(plan);
+    float totalHeight = pilotisHeight + plan.totalFloors * plan.floorH;
+
+    EmitGridPropsInPolygon(roofBase, totalHeight, "ac_unit",
+                           cfg.rooftopAcSpacing, cfg.rooftopAcInset,
+                           cfg.rooftopAcJitter, cfg.rooftopAcChance,
+                           rng, props, stats);
+}
+
+void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng,
+                        BuildStats* stats, std::vector<TreeInstance>* trees,
+                        std::vector<PropInstance>* props)
 {
     float inset = cfg.sidewalk;
     float usableW = cfg.blockSizeX - inset * 2.0f;
     float usableH = cfg.blockSizeY - inset * 2.0f;
+    const float parkZ = -0.12f;
+    const float parkThickness = 0.08f;
+    const float parkTop = parkZ + parkThickness;
 
     int countX = std::max(1, (int)((usableW + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
     int countY = std::max(1, (int)((usableH + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
@@ -248,13 +495,22 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         Polygon2D north = MakeRect(x, by + cfg.blockSizeY - inset - cfg.lotDepth, cfg.lotWidth, cfg.lotDepth);
 
         if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({south,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
+            Mesh park = BuildSlab({south, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
             if(stats) stats->parkCount++;
+            EmitTreesInPark(south, parkTop, cfg, rng, trees, stats);
+            EmitGridPropsInPolygon(south, parkTop, "bench",
+                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
+                                   cfg.parkBenchJitter, cfg.parkBenchChance,
+                                   rng, props, stats);
         }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({south,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
+            Mesh park = BuildSlab({south, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
             if(stats) stats->parkingCount++;
+            EmitGridPropsInPolygon(south, parkTop, "car",
+                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
+                                   cfg.parkingCarJitter, cfg.parkingCarChance,
+                                   rng, props, stats);
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
@@ -266,16 +522,26 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh ms = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, ms);
             if(stats) stats->buildingCount++;
+            EmitRooftopProps(plan, rng, cfg, props, stats);
         }
 
         if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({north,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
+            Mesh park = BuildSlab({north, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
             if(stats) stats->parkCount++;
+            EmitTreesInPark(north, parkTop, cfg, rng, trees, stats);
+            EmitGridPropsInPolygon(north, parkTop, "bench",
+                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
+                                   cfg.parkBenchJitter, cfg.parkBenchChance,
+                                   rng, props, stats);
         }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({north,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
+            Mesh park = BuildSlab({north, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
             if(stats) stats->parkingCount++;
+            EmitGridPropsInPolygon(north, parkTop, "car",
+                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
+                                   cfg.parkingCarJitter, cfg.parkingCarChance,
+                                   rng, props, stats);
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
@@ -287,6 +553,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh mn = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mn);
             if(stats) stats->buildingCount++;
+            EmitRooftopProps(plan, rng, cfg, props, stats);
         }
     }
 
@@ -296,13 +563,22 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
         Polygon2D east = MakeRect(bx + cfg.blockSizeX - inset - cfg.lotDepth, y, cfg.lotDepth, cfg.lotWidth);
 
         if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({west,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
+            Mesh park = BuildSlab({west, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
             if(stats) stats->parkCount++;
+            EmitTreesInPark(west, parkTop, cfg, rng, trees, stats);
+            EmitGridPropsInPolygon(west, parkTop, "bench",
+                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
+                                   cfg.parkBenchJitter, cfg.parkBenchChance,
+                                   rng, props, stats);
         }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({west,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
+            Mesh park = BuildSlab({west, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
             if(stats) stats->parkingCount++;
+            EmitGridPropsInPolygon(west, parkTop, "car",
+                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
+                                   cfg.parkingCarJitter, cfg.parkingCarChance,
+                                   rng, props, stats);
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
@@ -314,16 +590,26 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh mw = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, mw);
             if(stats) stats->buildingCount++;
+            EmitRooftopProps(plan, rng, cfg, props, stats);
         }
 
         if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({east,-0.12f,0.08f}, cfg.parkColor, 0.03f, SlabRole::Public);
+            Mesh park = BuildSlab({east, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
             if(stats) stats->parkCount++;
+            EmitTreesInPark(east, parkTop, cfg, rng, trees, stats);
+            EmitGridPropsInPolygon(east, parkTop, "bench",
+                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
+                                   cfg.parkBenchJitter, cfg.parkBenchChance,
+                                   rng, props, stats);
         }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({east,-0.12f,0.08f}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
+            Mesh park = BuildSlab({east, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
             if(stats) stats->parkingCount++;
+            EmitGridPropsInPolygon(east, parkTop, "car",
+                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
+                                   cfg.parkingCarJitter, cfg.parkingCarChance,
+                                   rng, props, stats);
         }else{
             SemanticDecisions decisions;
             sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
@@ -335,21 +621,22 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
             Mesh me = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
             Append(out, me);
             if(stats) stats->buildingCount++;
+            EmitRooftopProps(plan, rng, cfg, props, stats);
         }
     }
 }
 
 } // namespace
 
-Mesh BuildCityMesh(const CityConfig& cfg)
+CityBuild BuildCity(const CityConfig& cfg)
 {
     float totalW = cfg.blocksX * cfg.blockSizeX + (cfg.blocksX + 1) * cfg.roadWidth;
     float totalH = cfg.blocksY * cfg.blockSizeY + (cfg.blocksY + 1) * cfg.roadWidth;
 
-    Mesh city;
+    CityBuild result;
     std::cout << "City build start blocks=" << cfg.blocksX << "x" << cfg.blocksY
               << " seed=" << cfg.seed << "\n";
-    AddRoads(city, cfg, totalW, totalH);
+    AddRoads(result.mesh, cfg, totalW, totalH);
     std::cout << "Roads generated\n";
 
     Rng rng(cfg.seed);
@@ -360,8 +647,9 @@ Mesh BuildCityMesh(const CityConfig& cfg)
             float blockX = cfg.roadWidth + bx * (cfg.blockSizeX + cfg.roadWidth);
             float blockY = cfg.roadWidth + by * (cfg.blockSizeY + cfg.roadWidth);
 
-            AddLots(city, cfg, blockX, blockY, &stats);
-            AddBuildingsOnLots(city, cfg, blockX, blockY, rng, &stats);
+            AddLots(result.mesh, cfg, blockX, blockY, &stats);
+            AddBuildingsOnLots(result.mesh, cfg, blockX, blockY, rng, &stats, &result.trees, &result.props);
+            EmitStreetPropsForBlock(blockX, blockY, cfg, rng, &result.props, &stats);
         }
     }
 
@@ -369,6 +657,14 @@ Mesh BuildCityMesh(const CityConfig& cfg)
               << " parks=" << stats.parkCount
               << " parking=" << stats.parkingCount
               << " lotSlabs=" << stats.lotCount
+              << " trees=" << stats.treeCount
+              << " props=" << stats.propCount
               << "\n";
-    return city;
+    return result;
+}
+
+Mesh BuildCityMesh(const CityConfig& cfg)
+{
+    CityBuild result = BuildCity(cfg);
+    return result.mesh;
 }

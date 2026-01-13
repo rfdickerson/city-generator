@@ -538,12 +538,20 @@ int main()
     Polygon2D base = PlaceRectInLot(lot, 5.0f, 0.5f);
 
     // --- Stylized office parameters ---
-    const int   floors       = 5;
+    const int   floors       = 4;
     const float floorH       = 3.6f;
     const float slabT        = 0.75f;  // chunky SimCity slabs
     const float glassInset   = 1.2f;
+    const bool  enablePilotis    = true;
     const int   pilotisMinFloors = 4;
-    const float pilotisHeight    = (floors > pilotisMinFloors) ? 3.0f : 0.0f;
+    const float pilotisHeight    = (enablePilotis && floors > pilotisMinFloors) ? 3.0f : 0.0f;
+    const int   finEvery      = 2;
+    const float finThickness  = 0.20f;
+    const float finProjection = 0.60f;
+    const bool  usePodiumTower = false;
+    const int   podiumFloors   = 2;
+    const float towerInset     = 2.5f;
+    const float roofCapT       = 0.20f;
 
     // --- Palette (cheery, graphic) ---
     Vec3 concrete = {0.55f,0.56f,0.57f};
@@ -565,8 +573,16 @@ int main()
 
     float totalHeight = pilotisHeight + floors * floorH;
 
+    Polygon2D towerBase = base;
+    if(usePodiumTower && podiumFloors < floors){
+        towerBase = base.Inset(towerInset);
+    }
+
     for(int f=0;f<floors;f++){
         Polygon2D fp = base;
+        if(usePodiumTower && f >= podiumFloors){
+            fp = towerBase;
+        }
 
         float z = pilotisHeight + f * floorH;
 
@@ -580,7 +596,11 @@ int main()
 
         // --- curtain wall every 3 floors ---
         if(f % 3 == 0){
-            float cwTop = std::min(z + 3 * floorH, totalHeight);
+            float bandTop = totalHeight;
+            if(usePodiumTower && f < podiumFloors){
+                bandTop = pilotisHeight + podiumFloors * floorH;
+            }
+            float cwTop = std::min(z + 3 * floorH, bandTop);
             if(cwTop <= z + slabT){
                 continue;
             }
@@ -598,6 +618,27 @@ int main()
             building.i.insert(building.i.end(),cw.i.begin(),cw.i.end());
             offset += (unsigned)cw.v.size();
         }
+
+        // --- Brise-soleil: horizontal fins every 2 floors ---
+        if(finEvery > 0 && (f + 1) % finEvery == 0 && f != floors - 1){
+            float finZ = z + floorH - finThickness * 0.5f;
+            Polygon2D finFp = fp.Inset(-finProjection);
+            Mesh fin = BuildSlab({finFp,finZ,finThickness},concrete,0.02f);
+            for(auto& i:fin.i) i+=offset;
+            building.v.insert(building.v.end(),fin.v.begin(),fin.v.end());
+            building.i.insert(building.i.end(),fin.i.begin(),fin.i.end());
+            offset += (unsigned)fin.v.size();
+        }
+    }
+
+    // --- Podium roof slab to support tower footprint ---
+    if(usePodiumTower && podiumFloors > 0 && podiumFloors < floors){
+        float podiumZ = pilotisHeight + podiumFloors * floorH - 0.02f;
+        Mesh podiumRoof = BuildSlab({base,podiumZ,0.25f},concrete,0.02f);
+        for(auto& i:podiumRoof.i) i+=offset;
+        building.v.insert(building.v.end(),podiumRoof.v.begin(),podiumRoof.v.end());
+        building.i.insert(building.i.end(),podiumRoof.i.begin(),podiumRoof.i.end());
+        offset += (unsigned)podiumRoof.v.size();
     }
 
     // --- Pilotis columns ---
@@ -624,16 +665,18 @@ int main()
         }
     }
 
-    // --- Roof deck ---
+    // --- Roof cap ---
     {
-        Polygon2D roof = base.Inset(1.0f);
-        float roofZ = totalHeight;
-        float roofT = 0.25f;
-        Mesh roofMesh = BuildSlab({roof,roofZ,roofT},roofDeck,0.02f);
-        for(auto& i:roofMesh.i) i+=offset;
-        building.v.insert(building.v.end(),roofMesh.v.begin(),roofMesh.v.end());
-        building.i.insert(building.i.end(),roofMesh.i.begin(),roofMesh.i.end());
-        offset += (unsigned)roofMesh.v.size();
+        Polygon2D capBase = base;
+        if(usePodiumTower && podiumFloors < floors){
+            capBase = towerBase;
+        }
+        float capZ = totalHeight - roofCapT;
+        Mesh cap = BuildSlab({capBase,capZ,roofCapT},concrete,0.02f);
+        for(auto& i:cap.i) i+=offset;
+        building.v.insert(building.v.end(),cap.v.begin(),cap.v.end());
+        building.i.insert(building.i.end(),cap.i.begin(),cap.i.end());
+        offset += (unsigned)cap.v.size();
     }
 
     WriteOBJ("simcity_midcentury_office.obj",building);

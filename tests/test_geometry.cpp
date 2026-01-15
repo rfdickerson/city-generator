@@ -138,5 +138,5 @@ TEST(Geometry, UnionConvexHullCoversBoth)
     Polygon2D a = MakeSquare(0.0f, 0.0f, 2.0f, 2.0f);
     Polygon2D b = MakeSquare(1.0f, 1.0f, 3.0f, 3.0f);
     Polygon2D hull = UnionConvexHull(a, b);
-    EXPECT_NEAR(PolygonAreaAbs(hull), 9.0f, 1e-4f);
+    EXPECT_NEAR(PolygonAreaAbs(hull), 8.0f, 1e-4f);
 }

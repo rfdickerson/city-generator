@@ -87,6 +87,17 @@ target_link_libraries(test_geometry PRIVATE GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(test_geometry)
 
+add_executable(test_building_compiler
+    tests/test_building_compiler.cpp
+    src/building_compiler.cpp
+    src/geometry.cpp
+    src/geom_ops.cpp
+    src/mesh.cpp
+)
+target_include_directories(test_building_compiler PRIVATE src)
+target_link_libraries(test_building_compiler PRIVATE GTest::gtest_main)
+gtest_discover_tests(test_building_compiler)
+
 add_test(
     NAME generate_obj
     COMMAND

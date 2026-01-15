@@ -173,6 +173,10 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, con
                 decisions->floors = rng.RangeInt(tallMin, city.maxFloors);
             }
         }
+        decisions->floors = std::max(decisions->floors, 6);
+        if(rng.Chance(0.25f)){
+            decisions->floors = std::min(decisions->floors + rng.RangeInt(2, 6), city.maxFloors + 4);
+        }
         decisions->useFootprintSize = true;
         decisions->footprintWidth = rng.Range(40.0f, 80.0f);
         decisions->footprintDepth = rng.Range(20.0f, 35.0f);

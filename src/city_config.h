@@ -65,6 +65,8 @@ struct CityConfig {
 
     bool emitPropsInGltf;
 
+    std::string outputName;
+
     Vec3 roadColor;
     Vec3 lotColor;
     Vec3 parkColor;

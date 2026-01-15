@@ -66,6 +66,8 @@ CityConfig DefaultCityConfig()
 
     c.emitPropsInGltf = false;
 
+    c.outputName = "commercial_blocks";
+
     c.roadColor = {0.12f, 0.12f, 0.12f};
     c.lotColor = {0.18f, 0.28f, 0.18f};
     c.parkColor = {0.18f, 0.40f, 0.22f};
@@ -118,6 +120,14 @@ static bool GetBool(const JsonValue& obj, const char* key, bool* out)
     const JsonValue* v = FindKey(obj, key);
     if(!v || v->type != JsonValue::Type::Bool) return false;
     *out = v->b;
+    return true;
+}
+
+static bool GetString(const JsonValue& obj, const char* key, std::string* out)
+{
+    const JsonValue* v = FindKey(obj, key);
+    if(!v || v->type != JsonValue::Type::String) return false;
+    *out = v->str;
     return true;
 }
 
@@ -232,6 +242,7 @@ bool LoadCityConfig(const char* path, CityConfig* out, std::string* err)
     GetNumber(root, "parkingCarChance", &out->parkingCarChance);
 
     GetBool(root, "emitPropsInGltf", &out->emitPropsInGltf);
+    GetString(root, "outputName", &out->outputName);
 
     GetVec3(root, "roadColor", &out->roadColor);
     GetVec3(root, "lotColor", &out->lotColor);

@@ -27,8 +27,8 @@ int main(int argc, char** argv)
         building = BuildMidcenturyBuilding(plan);
     }
 
-    WriteOBJ("simcity_midcentury_office.obj",building);
-    WriteGLTF("simcity_midcentury_office.gltf",building);
-    std::cout << "Wrote simcity_midcentury_office.obj and simcity_midcentury_office.gltf\n";
+    std::string outPath = cfg.outputName + ".gltf";
+    WriteGLTF(outPath.c_str(), building);
+    std::cout << "Wrote " << outPath << "\n";
     return 0;
 }

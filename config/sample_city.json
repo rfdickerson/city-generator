@@ -1,5 +1,6 @@
 {
   "seed": 42,
+  "outputName": "commercial_blocks",
   "blocksX": 2,
   "blocksY": 2,
   "blockSizeX": 80.0,

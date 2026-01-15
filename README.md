@@ -19,12 +19,15 @@ Single building:
 ./build/buildings config/sample_config.json
 ```
 
+To select a preset (e.g., bungalow), set `"preset": "bungalow"` in `config/sample_config.json`.
+
 City blocks:
 ```bash
 ./build/city_builder config/sample_city.json
 ```
 
 Outputs are written to the working directory.
+`outputName` in the config controls the glTF base filename.
 
 ## Styles
 

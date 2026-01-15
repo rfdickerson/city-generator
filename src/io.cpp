@@ -6,25 +6,6 @@
 #include <cstdint>
 #include <string>
 
-void WriteOBJ(const char* path,const Mesh& m)
-{
-    std::ofstream out(path);
-
-    for(auto& v:m.v)
-        out<<"v "<<v.pos.x<<" "<<v.pos.y<<" "<<v.pos.z<<"\n";
-
-    for(auto& v:m.v)
-        out<<"vt "<<v.uv.x<<" "<<v.uv.y<<"\n";
-
-    for(auto& v:m.v)
-        out<<"vc "<<v.color.r<<" "<<v.color.g<<" "<<v.color.b<<" "<<v.color.a<<"\n";
-
-    for(size_t k=0;k<m.i.size();k+=3){
-        unsigned a=m.i[k]+1,b=m.i[k+1]+1,c=m.i[k+2]+1;
-        out<<"f "<<a<<"/"<<a<<" "<<b<<"/"<<b<<" "<<c<<"/"<<c<<"\n";
-    }
-}
-
 static void AppendAligned(std::vector<std::uint8_t>& buf)
 {
     while(buf.size() % 4 != 0){

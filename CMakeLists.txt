@@ -105,15 +105,3 @@ add_executable(test_io
 target_include_directories(test_io PRIVATE src)
 target_link_libraries(test_io PRIVATE GTest::gtest_main)
 gtest_discover_tests(test_io)
-
-add_test(
-    NAME generate_obj
-    COMMAND
-        ${CMAKE_COMMAND}
-        -DAPP=$<TARGET_FILE:buildings>
-        -DOUT=simcity_midcentury_office.obj
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/GenerateAndVerifyObj.cmake
-)
-set_tests_properties(generate_obj PROPERTIES
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-)

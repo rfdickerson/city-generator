@@ -40,6 +40,55 @@ Vec2 ToLocal(const Frame2D& frame, Vec2 p)
     return {Dot(d, frame.axisU), Dot(d, frame.axisV)};
 }
 
+struct SplitPolys {
+    Polygon2D pos;
+    Polygon2D neg;
+    bool hasPos = false;
+    bool hasNeg = false;
+};
+
+SplitPolys SplitPolygonByV0(const Polygon2D& poly, const Frame2D& frame)
+{
+    std::vector<Vec2> pos;
+    std::vector<Vec2> neg;
+    int n = (int)poly.v.size();
+    if(n < 3){
+        return {};
+    }
+
+    for(int i = 0; i < n; ++i){
+        Vec2 a = poly.v[i];
+        Vec2 b = poly.v[(i + 1) % n];
+        float va = ToLocal(frame, a).y;
+        float vb = ToLocal(frame, b).y;
+
+        if(va >= 0.0f){
+            pos.push_back(a);
+        }
+        if(va <= 0.0f){
+            neg.push_back(a);
+        }
+
+        if((va > 0.0f && vb < 0.0f) || (va < 0.0f && vb > 0.0f)){
+            float t = va / (va - vb);
+            Vec2 hit{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t};
+            pos.push_back(hit);
+            neg.push_back(hit);
+        }
+    }
+
+    SplitPolys out;
+    if(pos.size() >= 3){
+        out.pos = {pos};
+        out.hasPos = true;
+    }
+    if(neg.size() >= 3){
+        out.neg = {neg};
+        out.hasNeg = true;
+    }
+    return out;
+}
+
 float PointSegmentDistance(Vec2 p, Vec2 a, Vec2 b)
 {
     Vec2 ab{b.x - a.x, b.y - a.y};
@@ -77,6 +126,27 @@ float HeightHip(float uAbs, float vAbs, float ridgeHalfLen, float ridgeHeight, f
     return std::max(0.0f, ridgeHeight - slope * d);
 }
 
+float ComputeRoofHeight(const RoofVolume& roof,
+                        const Frame2D& frame,
+                        float ridgeHalfLen,
+                        float slope,
+                        Vec2 p)
+{
+    Vec2 local = ToLocal(frame, p);
+    float uAbs = std::fabs(local.x);
+    float vAbs = std::fabs(local.y);
+    return (roof.params.type == RoofType::Hip)
+               ? HeightHip(uAbs, vAbs, ridgeHalfLen, roof.params.ridgeHeight, slope)
+               : HeightGable(vAbs, roof.params.ridgeHeight, slope);
+}
+
+float ComputeRoofAo(const RoofVolume& roof, const Polygon2D& footprint, float edgeScale, Vec2 p)
+{
+    float edgeDist01 = Clamp01(MinEdgeDistance(footprint, p) / edgeScale);
+    float ao = 0.70f + 0.30f * edgeDist01;
+    return Lerp(1.0f, ao, Clamp01(roof.params.aoStrength));
+}
+
 Mesh BuildRoofMesh(const RoofVolume& roof)
 {
     Mesh m;
@@ -102,34 +172,61 @@ Mesh BuildRoofMesh(const RoofVolume& roof)
     float ridgeHalfLen = maxAbsU * Clamp01(roof.params.hipRidgeFrac);
     float edgeScale = std::max(0.5f, std::min(maxAbsU, maxAbsV));
 
-    std::vector<unsigned> tris = TriangulateCCW(roofFootprint.v);
-    for(size_t k = 0; k + 2 < tris.size(); k += 3){
-        Vec2 p0 = roofFootprint.v[tris[k]];
-        Vec2 p1 = roofFootprint.v[tris[k + 1]];
-        Vec2 p2 = roofFootprint.v[tris[k + 2]];
-        Vec2 pts[3] = {p0, p1, p2};
+    auto emitTriangles = [&](const Polygon2D& poly){
+        std::vector<unsigned> tris = TriangulateCCW(poly.v);
+        for(size_t k = 0; k + 2 < tris.size(); k += 3){
+            Vec2 p0 = poly.v[tris[k]];
+            Vec2 p1 = poly.v[tris[k + 1]];
+            Vec2 p2 = poly.v[tris[k + 2]];
+            Vec2 pts[3] = {p0, p1, p2};
 
-        for(int i = 0; i < 3; ++i){
-            Vec2 p = pts[i];
-            Vec2 local = ToLocal(frame, p);
-            float uAbs = std::fabs(local.x);
-            float vAbs = std::fabs(local.y);
-            float height = (roof.params.type == RoofType::Hip)
-                               ? HeightHip(uAbs, vAbs, ridgeHalfLen, roof.params.ridgeHeight, slope)
-                               : HeightGable(vAbs, roof.params.ridgeHeight, slope);
-            float edgeDist01 = Clamp01(MinEdgeDistance(roofFootprint, p) / edgeScale);
-            float ao = 0.70f + 0.30f * edgeDist01;
-            ao = Lerp(1.0f, ao, Clamp01(roof.params.aoStrength));
+            for(int i = 0; i < 3; ++i){
+                Vec2 p = pts[i];
+                float height = ComputeRoofHeight(roof, frame, ridgeHalfLen, slope, p);
+                float ao = ComputeRoofAo(roof, roofFootprint, edgeScale, p);
 
-            m.v.push_back({
-                {p.x, roof.baseZ + height, p.y},
-                {roof.color.x, roof.color.y, roof.color.z, ao},
-                {p.x * roof.uvScale, p.y * roof.uvScale}
-            });
+                m.v.push_back({
+                    {p.x, roof.baseZ + height, p.y},
+                    {roof.color.x, roof.color.y, roof.color.z, ao},
+                    {p.x * roof.uvScale, p.y * roof.uvScale}
+                });
+            }
+
+            unsigned base = (unsigned)m.v.size() - 3;
+            m.i.insert(m.i.end(), {base, base + 1, base + 2});
         }
+    };
 
-        unsigned base = (unsigned)m.v.size() - 3;
-        m.i.insert(m.i.end(), {base, base + 1, base + 2});
+    if(roof.params.type == RoofType::Gable){
+        SplitPolys split = SplitPolygonByV0(roofFootprint, frame);
+        if(split.hasPos) emitTriangles(split.pos);
+        if(split.hasNeg) emitTriangles(split.neg);
+        if(!split.hasPos && !split.hasNeg){
+            emitTriangles(roofFootprint);
+        }
+    }else{
+        emitTriangles(roofFootprint);
+    }
+
+    int n = (int)roofFootprint.v.size();
+    float wallAo = Lerp(1.0f, 0.65f, Clamp01(roof.params.aoStrength));
+    for(int i = 0; i < n; ++i){
+        int j = (i + 1) % n;
+        Vec2 a = roofFootprint.v[i];
+        Vec2 b = roofFootprint.v[j];
+        float ha = ComputeRoofHeight(roof, frame, ridgeHalfLen, slope, a);
+        float hb = ComputeRoofHeight(roof, frame, ridgeHalfLen, slope, b);
+
+        unsigned base = (unsigned)m.v.size();
+        m.v.push_back({{a.x, roof.baseZ, a.y}, {roof.color.x, roof.color.y, roof.color.z, wallAo},
+                       {a.x * roof.uvScale, a.y * roof.uvScale}});
+        m.v.push_back({{b.x, roof.baseZ, b.y}, {roof.color.x, roof.color.y, roof.color.z, wallAo},
+                       {b.x * roof.uvScale, b.y * roof.uvScale}});
+        m.v.push_back({{b.x, roof.baseZ + hb, b.y}, {roof.color.x, roof.color.y, roof.color.z, wallAo},
+                       {b.x * roof.uvScale, b.y * roof.uvScale}});
+        m.v.push_back({{a.x, roof.baseZ + ha, a.y}, {roof.color.x, roof.color.y, roof.color.z, wallAo},
+                       {a.x * roof.uvScale, a.y * roof.uvScale}});
+        AddQuad(m, base + 0, base + 1, base + 2, base + 3);
     }
 
     return m;

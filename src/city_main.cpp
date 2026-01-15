@@ -15,20 +15,23 @@ int main(int argc, char** argv)
     }
 
     CityBuild city = BuildCity(cfg);
+    std::string baseName = cfg.outputName;
+    std::string gltfPath = baseName + ".gltf";
+    std::string treesPath = baseName + "_trees.json";
+    std::string propsPath = baseName + "_props.json";
+
     if(cfg.emitPropsInGltf && cfg.emitTreesInGltf){
-        WriteGLTF("commercial_blocks.gltf", city.mesh, city.trees, city.props);
+        WriteGLTF(gltfPath.c_str(), city.mesh, city.trees, city.props);
     }else if(cfg.emitTreesInGltf){
-        WriteGLTF("commercial_blocks.gltf", city.mesh, city.trees);
+        WriteGLTF(gltfPath.c_str(), city.mesh, city.trees);
     }else if(cfg.emitPropsInGltf){
         std::vector<TreeInstance> noTrees;
-        WriteGLTF("commercial_blocks.gltf", city.mesh, noTrees, city.props);
+        WriteGLTF(gltfPath.c_str(), city.mesh, noTrees, city.props);
     }else{
-        WriteGLTF("commercial_blocks.gltf", city.mesh);
+        WriteGLTF(gltfPath.c_str(), city.mesh);
     }
-    WriteOBJ("commercial_blocks.obj", city.mesh);
-    WriteTreeInstancesJson("commercial_blocks_trees.json", city.trees);
-    WritePropInstancesJson("commercial_blocks_props.json", city.props);
-    std::cout << "Wrote commercial_blocks.gltf, commercial_blocks.obj, commercial_blocks_trees.json, "
-              << "and commercial_blocks_props.json\n";
+    WriteTreeInstancesJson(treesPath.c_str(), city.trees);
+    WritePropInstancesJson(propsPath.c_str(), city.props);
+    std::cout << "Wrote " << gltfPath << ", " << treesPath << ", and " << propsPath << "\n";
     return 0;
 }

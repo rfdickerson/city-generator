@@ -5,6 +5,7 @@
 
 struct Config {
     std::string style;
+    std::string outputName;
     Polygon2D lot;
     float lotShrink;
     float lotSnap;

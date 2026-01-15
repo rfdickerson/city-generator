@@ -5,7 +5,6 @@
 #include "instances.h"
 #include "mesh.h"
 
-void WriteOBJ(const char* path, const Mesh& m);
 void WriteGLTF(const char* path, const Mesh& m);
 void WriteGLTF(const char* path, const Mesh& m, const std::vector<TreeInstance>& trees);
 void WriteGLTF(const char* path, const Mesh& m, const std::vector<TreeInstance>& trees,

@@ -34,20 +34,6 @@ std::filesystem::path TempPath(const char* name)
 
 } // namespace
 
-TEST(IO, WriteOBJEmitsVerticesAndFaces)
-{
-    Mesh mesh = MakeTriangleMesh();
-    std::filesystem::path path = TempPath("io_test.obj");
-
-    WriteOBJ(path.string().c_str(), mesh);
-
-    EXPECT_TRUE(std::filesystem::exists(path));
-    std::string contents = ReadFile(path);
-    EXPECT_NE(contents.find("v "), std::string::npos);
-    EXPECT_NE(contents.find("vt "), std::string::npos);
-    EXPECT_NE(contents.find("f "), std::string::npos);
-}
-
 TEST(IO, WriteGLTFEmitsBinAndExtras)
 {
     Mesh mesh = MakeTriangleMesh();

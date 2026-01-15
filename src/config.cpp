@@ -9,6 +9,7 @@ Config DefaultConfig()
 {
     Config c{};
     c.style = "midcentury";
+    c.outputName = "simcity_midcentury_office";
     c.lot = {{
         {-18,-12},{18,-12},{22,10},{-14,14}
     }};
@@ -136,6 +137,50 @@ static bool GetLot(const JsonValue& obj, const char* key, Polygon2D* out)
     return true;
 }
 
+static void ApplyConfigValues(const JsonValue& obj, Config* out)
+{
+    GetLot(obj, "lot", &out->lot);
+    GetString(obj, "style", &out->style);
+    GetString(obj, "outputName", &out->outputName);
+    GetNumber(obj, "lotShrink", &out->lotShrink);
+    GetNumber(obj, "lotSnap", &out->lotSnap);
+    GetBool(obj, "showLot", &out->showLot);
+
+    GetInt(obj, "floors", &out->floors);
+    GetNumber(obj, "floorH", &out->floorH);
+    GetNumber(obj, "slabT", &out->slabT);
+    GetNumber(obj, "glassInset", &out->glassInset);
+
+    GetBool(obj, "enablePilotis", &out->enablePilotis);
+    GetNumber(obj, "pilotisHeight", &out->pilotisHeight);
+
+    GetInt(obj, "finEvery", &out->finEvery);
+    GetNumber(obj, "finThickness", &out->finThickness);
+    GetNumber(obj, "finProjection", &out->finProjection);
+
+    GetBool(obj, "usePodiumTower", &out->usePodiumTower);
+    GetInt(obj, "podiumFloors", &out->podiumFloors);
+    GetNumber(obj, "towerInset", &out->towerInset);
+
+    GetBool(obj, "useLShape", &out->useLShape);
+    GetNumber(obj, "lCutX", &out->lCutX);
+    GetNumber(obj, "lCutY", &out->lCutY);
+
+    GetNumber(obj, "roofCapT", &out->roofCapT);
+    GetNumber(obj, "roofCapOverhang", &out->roofCapOverhang);
+    GetNumber(obj, "roofDeckT", &out->roofDeckT);
+    GetNumber(obj, "roofDeckInset", &out->roofDeckInset);
+
+    GetNumber(obj, "curtainInset", &out->curtainInset);
+    GetInt(obj, "curtainEvery", &out->curtainEvery);
+    GetInt(obj, "curtainBandFloors", &out->curtainBandFloors);
+
+    GetVec3(obj, "concrete", &out->concrete);
+    GetVec3(obj, "window", &out->window);
+    GetVec3(obj, "roofDeck", &out->roofDeck);
+    GetVec3(obj, "lotFill", &out->lotFill);
+}
+
 bool LoadConfig(const char* path, Config* out, std::string* err)
 {
     if(!out) return false;
@@ -158,45 +203,17 @@ bool LoadConfig(const char* path, Config* out, std::string* err)
         return false;
     }
 
-    GetLot(root, "lot", &out->lot);
-    GetString(root, "style", &out->style);
-    GetNumber(root, "lotShrink", &out->lotShrink);
-    GetNumber(root, "lotSnap", &out->lotSnap);
-    GetBool(root, "showLot", &out->showLot);
+    const JsonValue* presetName = FindKey(root, "preset");
+    const JsonValue* presets = FindKey(root, "presets");
+    if(presetName && presetName->type == JsonValue::Type::String &&
+       presets && presets->type == JsonValue::Type::Object){
+        auto it = presets->obj.find(presetName->str);
+        if(it != presets->obj.end() && it->second.type == JsonValue::Type::Object){
+            ApplyConfigValues(it->second, out);
+        }
+    }
 
-    GetInt(root, "floors", &out->floors);
-    GetNumber(root, "floorH", &out->floorH);
-    GetNumber(root, "slabT", &out->slabT);
-    GetNumber(root, "glassInset", &out->glassInset);
-
-    GetBool(root, "enablePilotis", &out->enablePilotis);
-    GetNumber(root, "pilotisHeight", &out->pilotisHeight);
-
-    GetInt(root, "finEvery", &out->finEvery);
-    GetNumber(root, "finThickness", &out->finThickness);
-    GetNumber(root, "finProjection", &out->finProjection);
-
-    GetBool(root, "usePodiumTower", &out->usePodiumTower);
-    GetInt(root, "podiumFloors", &out->podiumFloors);
-    GetNumber(root, "towerInset", &out->towerInset);
-
-    GetBool(root, "useLShape", &out->useLShape);
-    GetNumber(root, "lCutX", &out->lCutX);
-    GetNumber(root, "lCutY", &out->lCutY);
-
-    GetNumber(root, "roofCapT", &out->roofCapT);
-    GetNumber(root, "roofCapOverhang", &out->roofCapOverhang);
-    GetNumber(root, "roofDeckT", &out->roofDeckT);
-    GetNumber(root, "roofDeckInset", &out->roofDeckInset);
-
-    GetNumber(root, "curtainInset", &out->curtainInset);
-    GetInt(root, "curtainEvery", &out->curtainEvery);
-    GetInt(root, "curtainBandFloors", &out->curtainBandFloors);
-
-    GetVec3(root, "concrete", &out->concrete);
-    GetVec3(root, "window", &out->window);
-    GetVec3(root, "roofDeck", &out->roofDeck);
-    GetVec3(root, "lotFill", &out->lotFill);
+    ApplyConfigValues(root, out);
 
     return true;
 }

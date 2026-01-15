@@ -41,6 +41,11 @@ Polygon2D BuildPorchFootprint(const Polygon2D& base, Vec2 biasDir)
     return MakeRectangle(center, porchWidth, porchDepth, angle);
 }
 
+Vec3 Darken(Vec3 c, float mul)
+{
+    return {c.x * mul, c.y * mul, c.z * mul};
+}
+
 } // namespace
 
 Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
@@ -65,7 +70,8 @@ Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
     roof.ridgeHeight = std::max(1.4f, plan.floorH * 0.55f);
     roof.hipRidgeFrac = 0.45f;
     roof.aoStrength = 0.85f;
-    AddRoofVolume(model, base, wallHeight, roof, plan.roofDeck, 0.05f);
+    Vec3 roofColor = Darken(plan.roofDeck, 0.75f);
+    AddRoofVolume(model, base, wallHeight, roof, roofColor, 0.05f);
 
     return CompileBuildingModel(model);
 }

@@ -98,6 +98,14 @@ target_include_directories(test_building_compiler PRIVATE src)
 target_link_libraries(test_building_compiler PRIVATE GTest::gtest_main)
 gtest_discover_tests(test_building_compiler)
 
+add_executable(test_io
+    tests/test_io.cpp
+    src/io.cpp
+)
+target_include_directories(test_io PRIVATE src)
+target_link_libraries(test_io PRIVATE GTest::gtest_main)
+gtest_discover_tests(test_io)
+
 add_test(
     NAME generate_obj
     COMMAND

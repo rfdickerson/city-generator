@@ -78,8 +78,16 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.lotFill = cfg.lotFill;
     plan.showLot = cfg.showLot;
 
-    plan.facadeType = (cfg.style == "brutalist") ? FacadeType::Solid : FacadeType::BriseSoleil;
-    plan.fenestration = (cfg.style == "brutalist") ? FenestrationPattern::Punched : FenestrationPattern::ContinuousBand;
+    if(cfg.style == "brutalist"){
+        plan.facadeType = FacadeType::Solid;
+        plan.fenestration = FenestrationPattern::Punched;
+    }else if(cfg.style == "bungalow"){
+        plan.facadeType = FacadeType::Solid;
+        plan.fenestration = FenestrationPattern::Punched;
+    }else{
+        plan.facadeType = FacadeType::BriseSoleil;
+        plan.fenestration = FenestrationPattern::ContinuousBand;
+    }
     plan.semantics = DefaultBuildingSemantics(cfg.enablePilotis, cfg.usePodiumTower);
     plan.slabPlan = BuildDefaultSlabPlan(plan.totalFloors, plan.usePodiumTower, plan.podiumFloors);
 

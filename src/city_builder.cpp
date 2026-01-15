@@ -8,8 +8,9 @@
 #include "geom_ops.h"
 #include "geometry.h"
 #include "semantics.h"
-#include "style_midcentury.h"
 #include "style_brutalist.h"
+#include "style_bungalow.h"
+#include "style_midcentury.h"
 
 namespace {
 
@@ -106,15 +107,20 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
         decisions->style = city.styles[idx];
     }
 
-    int lowMax = std::max(city.minFloors, std::min(city.lowMaxFloors, city.maxFloors));
-    decisions->floors = rng.RangeInt(city.minFloors, city.maxFloors);
-    if(!rng.Chance(city.tallChance)){
-        decisions->floors = rng.RangeInt(city.minFloors, lowMax);
+    bool isBungalow = (decisions->style == "bungalow");
+    if(isBungalow){
+        decisions->floors = rng.RangeInt(1, 2);
+    }else{
+        int lowMax = std::max(city.minFloors, std::min(city.lowMaxFloors, city.maxFloors));
+        decisions->floors = rng.RangeInt(city.minFloors, city.maxFloors);
+        if(!rng.Chance(city.tallChance)){
+            decisions->floors = rng.RangeInt(city.minFloors, lowMax);
+        }
     }
 
-    decisions->enablePilotis = city.disablePilotis ? false : rng.Chance(city.pilotisChance);
+    decisions->enablePilotis = isBungalow ? false : (city.disablePilotis ? false : rng.Chance(city.pilotisChance));
 
-    decisions->useLShape = rng.Chance(city.lShapeChance);
+    decisions->useLShape = isBungalow ? false : rng.Chance(city.lShapeChance);
     if(decisions->useLShape){
         decisions->lCutX = rng.Range(4.0f, 8.0f);
         decisions->lCutY = rng.Range(3.0f, 7.0f);
@@ -123,17 +129,18 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
     decisions->usePodiumTower = false;
     decisions->podiumFloors = DefaultConfig().podiumFloors;
     decisions->towerInset = DefaultConfig().towerInset;
-    decisions->roofDeckEnclosed = rng.Chance(0.35f);
+    decisions->roofDeckEnclosed = isBungalow ? false : rng.Chance(0.35f);
 
     sbl::BuildingSemantics sem{};
-    sem.use = sbl::BuildingUse::Office;
+    sem.use = isBungalow ? sbl::BuildingUse::Residential : sbl::BuildingUse::Office;
     sem.urbanRole = sbl::UrbanRole::Infill;
     sem.placement = sbl::SitePlacement::CenteredObject;
     sem.ground = decisions->enablePilotis ? sbl::GroundInterface::Permeable : sbl::GroundInterface::Active;
-    sem.massing = decisions->usePodiumTower ? sbl::MassingType::PodiumWithTower : sbl::MassingType::Tower;
+    sem.massing = isBungalow ? sbl::MassingType::Slab
+                             : (decisions->usePodiumTower ? sbl::MassingType::PodiumWithTower : sbl::MassingType::Tower);
     sem.hierarchy = decisions->usePodiumTower ? sbl::VerticalHierarchy::PodiumDominant : sbl::VerticalHierarchy::Uniform;
-    sem.tone = sbl::VisualTone::Neutral;
-    sem.contrast = sbl::ContrastLevel::Medium;
+    sem.tone = isBungalow ? sbl::VisualTone::Cheerful : sbl::VisualTone::Neutral;
+    sem.contrast = isBungalow ? sbl::ContrastLevel::Low : sbl::ContrastLevel::Medium;
     if(decisions->enablePilotis){
         sem.env.push_back(sbl::EnvironmentalStrategy::FloodResilient);
     }
@@ -200,9 +207,16 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.curtainInset = defaults.curtainInset;
     plan.curtainEvery = 1;
     plan.curtainBandFloors = 1;
-    plan.facadeType = (plan.style == "brutalist") ? sbl::FacadeType::Solid : sbl::FacadeType::BriseSoleil;
-    plan.fenestration = (plan.style == "brutalist") ? sbl::FenestrationPattern::Punched
-                                                    : sbl::FenestrationPattern::ContinuousBand;
+    if(plan.style == "brutalist"){
+        plan.facadeType = sbl::FacadeType::Solid;
+        plan.fenestration = sbl::FenestrationPattern::Punched;
+    }else if(plan.style == "bungalow"){
+        plan.facadeType = sbl::FacadeType::Solid;
+        plan.fenestration = sbl::FenestrationPattern::Punched;
+    }else{
+        plan.facadeType = sbl::FacadeType::BriseSoleil;
+        plan.fenestration = sbl::FenestrationPattern::ContinuousBand;
+    }
     plan.concrete = defaults.concrete;
     plan.window = defaults.window;
     plan.roofDeck = defaults.roofDeck;
@@ -360,6 +374,17 @@ const char* FacadeLabel(sbl::FacadeType facade)
     default:
         return "unknown";
     }
+}
+
+Mesh BuildBuildingForStyle(const sbl::BuildingPlan& plan)
+{
+    if(plan.style == "brutalist"){
+        return BuildBrutalistBuilding(plan);
+    }
+    if(plan.style == "bungalow"){
+        return BuildBungalowBuilding(plan);
+    }
+    return BuildMidcenturyBuilding(plan);
 }
 
 void EmitGridPropsInPolygon(const Polygon2D& area, float height, const char* type,
@@ -550,7 +575,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
                       << "\n";
-            Mesh ms = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
+            Mesh ms = BuildBuildingForStyle(plan);
             Append(out, ms);
             if(stats) stats->buildingCount++;
             EmitRooftopProps(plan, rng, cfg, props, stats);
@@ -582,7 +607,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
                       << "\n";
-            Mesh mn = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
+            Mesh mn = BuildBuildingForStyle(plan);
             Append(out, mn);
             if(stats) stats->buildingCount++;
             EmitRooftopProps(plan, rng, cfg, props, stats);
@@ -620,7 +645,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
                       << "\n";
-            Mesh mw = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
+            Mesh mw = BuildBuildingForStyle(plan);
             Append(out, mw);
             if(stats) stats->buildingCount++;
             EmitRooftopProps(plan, rng, cfg, props, stats);
@@ -652,7 +677,7 @@ void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rn
                       << " floors=" << plan.totalFloors
                       << " facade=" << FacadeLabel(plan.facadeType)
                       << "\n";
-            Mesh me = (plan.style == "brutalist") ? BuildBrutalistBuilding(plan) : BuildMidcenturyBuilding(plan);
+            Mesh me = BuildBuildingForStyle(plan);
             Append(out, me);
             if(stats) stats->buildingCount++;
             EmitRooftopProps(plan, rng, cfg, props, stats);

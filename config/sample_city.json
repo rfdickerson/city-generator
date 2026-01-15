@@ -20,7 +20,7 @@
   "pilotisChance": 0.35,
   "disablePilotis": false,
   "lShapeChance": 0.25,
-  "styles": ["midcentury"],
+  "styles": ["midcentury", "bungalow"],
   "treeVariants": ["maple", "oak", "pine"],
   "treeSpacing": 6.0,
   "treeInset": 2.0,

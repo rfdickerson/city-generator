@@ -4,9 +4,10 @@
 #include <cmath>
 #include <limits>
 
+#include "building_compiler.h"
+#include "building_model.h"
 #include "geom_ops.h"
 #include "geometry.h"
-#include "mesh.h"
 
 namespace {
 
@@ -77,15 +78,14 @@ float PilotisGroundInset(const Polygon2D& fp, const sbl::BuildingPlan& plan)
     return inset;
 }
 
-void AddPilotisCore(Mesh& out, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
+void AddPilotisCore(BuildingModel& model, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
 {
     if(pilotisHeight <= 0.0f){
         return;
     }
     float inset = PilotisGroundInset(base, plan);
     Polygon2D coreFp = InsetIfUsable(base, inset);
-    Mesh core = BuildSlab({coreFp, 0.0f, pilotisHeight}, plan.concrete, 0.02f, SlabRole::Public);
-    Append(out, core);
+    AddSlabVolume(model, coreFp, 0.0f, pilotisHeight, plan.concrete, 0.02f, SlabRole::Public);
 }
 
 Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
@@ -112,33 +112,30 @@ float ComputePilotisHeight(const sbl::BuildingPlan& plan)
     return plan.enablePilotis ? plan.pilotisHeight : 0.0f;
 }
 
-void AddLotMesh(Mesh& out, const sbl::BuildingPlan& plan)
+void AddLotMesh(BuildingModel& model, const sbl::BuildingPlan& plan)
 {
     if(!plan.showLot){
         return;
     }
-    Mesh lotMesh = BuildSlab({plan.lot,-0.25f,0.25f},plan.lotFill,0.03f, SlabRole::Public);
-    Append(out, lotMesh);
+    AddSlabVolume(model, plan.lot, -0.25f, 0.25f, plan.lotFill, 0.03f, SlabRole::Public);
 }
 
-void AddFloorSlab(Mesh& out, const Polygon2D& fp, float z, const sbl::BuildingPlan& plan, int floor)
+void AddFloorSlab(BuildingModel& model, const Polygon2D& fp, float z, const sbl::BuildingPlan& plan, int floor)
 {
     SlabRole role = ToMeshRole(RoleForFloor(plan, floor));
-    Mesh slab = BuildSlab({fp,z,plan.slabT},plan.concrete,0.02f, role);
-    Append(out, slab);
+    AddSlabVolume(model, fp, z, plan.slabT, plan.concrete, 0.02f, role);
 }
 
-void AddPodiumRoof(Mesh& out, const Polygon2D& base, float pilotisHeight, const sbl::BuildingPlan& plan)
+void AddPodiumRoof(BuildingModel& model, const Polygon2D& base, float pilotisHeight, const sbl::BuildingPlan& plan)
 {
     if(!plan.usePodiumTower || plan.useLShape || plan.podiumFloors <= 0 || plan.podiumFloors >= plan.totalFloors){
         return;
     }
     float podiumZ = pilotisHeight + plan.podiumFloors * plan.floorH - 0.02f;
-    Mesh podiumRoof = BuildSlab({base,podiumZ,0.35f},plan.concrete,0.02f, SlabRole::Podium);
-    Append(out, podiumRoof);
+    AddSlabVolume(model, base, podiumZ, 0.35f, plan.concrete, 0.02f, SlabRole::Podium);
 }
 
-void AddPilotis(Mesh& out, const Polygon2D& baseRect, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
+void AddPilotis(BuildingModel& model, const Polygon2D& baseRect, const Polygon2D& base, const sbl::BuildingPlan& plan, float pilotisHeight)
 {
     if(pilotisHeight <= 0.0f){
         return;
@@ -163,39 +160,37 @@ void AddPilotis(Mesh& out, const Polygon2D& baseRect, const Polygon2D& base, con
             if(!PointInPolygon(base, c)){
                 continue;
             }
-            AddBox(out, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, plan.concrete);
+            AddBoxVolume(model, c, axisX, axisY, colHalf, colHalf, 0.0f, pilotisHeight, plan.concrete);
         }
     }
 }
 
-void AddRoofCap(Mesh& out, const Polygon2D& capBase, float totalHeight, const sbl::BuildingPlan& plan)
+void AddRoofCap(BuildingModel& model, const Polygon2D& capBase, float totalHeight, const sbl::BuildingPlan& plan)
 {
     float capT = std::max(plan.roofCapT, plan.slabT * 1.25f);
     Polygon2D capFp = plan.useLShape ? capBase : OutsetFromCentroid(capBase, plan.roofCapOverhang);
     float capZ = totalHeight - capT;
-    Mesh cap = BuildSlab({capFp,capZ,capT},plan.concrete,0.02f, SlabRole::Roof);
-    Append(out, cap);
+    AddSlabVolume(model, capFp, capZ, capT, plan.concrete, 0.02f, SlabRole::Roof);
 }
 
-void AddRoofDeck(Mesh& out, const Polygon2D& deckBase, float totalHeight, const sbl::BuildingPlan& plan)
+void AddRoofDeck(BuildingModel& model, const Polygon2D& deckBase, float totalHeight, const sbl::BuildingPlan& plan)
 {
     Polygon2D deckFp = plan.useLShape ? deckBase : OutsetFromCentroid(deckBase, -plan.roofDeckInset);
     float deckZ = totalHeight + 0.02f;
-    Mesh deck = BuildSlab({deckFp,deckZ,plan.roofDeckT},plan.roofDeck,0.02f, SlabRole::Terrace);
-    Append(out, deck);
+    AddSlabVolume(model, deckFp, deckZ, plan.roofDeckT, plan.roofDeck, 0.02f, SlabRole::Terrace);
     if(plan.roofDeckEnclosed){
         float wallZ0 = deckZ + plan.roofDeckT;
         float wallH = 1.1f;
-        Mesh wall = BuildCurtainWall(deckFp,
-                                     wallZ0,
-                                     wallZ0 + wallH,
-                                     0.0f,
-                                     plan.concrete,
-                                     plan.concrete,
-                                     50.0f,
-                                     0.0f,
-                                     0.3f);
-        Append(out, wall);
+        AddCurtainWallVolume(model,
+                             deckFp,
+                             wallZ0,
+                             wallZ0 + wallH,
+                             0.0f,
+                             plan.concrete,
+                             plan.concrete,
+                             50.0f,
+                             0.0f,
+                             0.3f);
     }
 }
 
@@ -207,9 +202,9 @@ Mesh BuildBrutalistBuilding(const sbl::BuildingPlan& plan)
     float pilotisHeight = ComputePilotisHeight(plan);
     float totalHeight = pilotisHeight + plan.totalFloors * plan.floorH;
 
-    Mesh building;
-    AddLotMesh(building, plan);
-    AddPilotisCore(building, fp.base, plan, pilotisHeight);
+    BuildingModel model;
+    AddLotMesh(model, plan);
+    AddPilotisCore(model, fp.base, plan, pilotisHeight);
 
     for(int f=0;f<plan.totalFloors;f++){
         Polygon2D floorFp = fp.base;
@@ -217,18 +212,18 @@ Mesh BuildBrutalistBuilding(const sbl::BuildingPlan& plan)
             floorFp = fp.towerBase;
         }
         float z = pilotisHeight + f * plan.floorH;
-        AddFloorSlab(building, floorFp, z, plan, f);
+        AddFloorSlab(model, floorFp, z, plan, f);
     }
 
-    AddPodiumRoof(building, fp.base, pilotisHeight, plan);
-    AddPilotis(building, fp.baseRect, fp.base, plan, pilotisHeight);
+    AddPodiumRoof(model, fp.base, pilotisHeight, plan);
+    AddPilotis(model, fp.baseRect, fp.base, plan, pilotisHeight);
 
     Polygon2D capBase = fp.base;
     if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
         capBase = fp.towerBase;
     }
-    AddRoofCap(building, capBase, totalHeight, plan);
-    AddRoofDeck(building, capBase, totalHeight, plan);
+    AddRoofCap(model, capBase, totalHeight, plan);
+    AddRoofDeck(model, capBase, totalHeight, plan);
 
-    return building;
+    return CompileBuildingModel(model);
 }

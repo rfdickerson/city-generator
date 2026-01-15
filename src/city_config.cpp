@@ -32,7 +32,7 @@ CityConfig DefaultCityConfig()
     c.disablePilotis = false;
     c.lShapeChance = 0.30f;
 
-    c.styles = {"midcentury", "brutalist"};
+    c.styles = {"midcentury", "brutalist", "bungalow"};
     c.treeVariants = {"maple", "oak", "pine"};
     c.treeSpacing = 6.0f;
     c.treeInset = 2.0f;

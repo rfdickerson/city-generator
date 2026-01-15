@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_executable(buildings
     src/main.cpp
+    src/building_model.h
+    src/building_compiler.h
+    src/building_compiler.cpp
     src/math.h
     src/geometry.h
     src/geometry.cpp
@@ -14,6 +17,8 @@ add_executable(buildings
     src/mesh.cpp
     src/semantics.h
     src/semantics.cpp
+    src/style_bungalow.h
+    src/style_bungalow.cpp
     src/style_midcentury.h
     src/style_midcentury.cpp
     src/style_brutalist.h
@@ -31,6 +36,9 @@ add_executable(city_builder
     src/city_main.cpp
     src/city_builder.h
     src/city_builder.cpp
+    src/building_model.h
+    src/building_compiler.h
+    src/building_compiler.cpp
     src/city_config.h
     src/city_config.cpp
     src/math.h
@@ -42,6 +50,8 @@ add_executable(city_builder
     src/mesh.cpp
     src/semantics.h
     src/semantics.cpp
+    src/style_bungalow.h
+    src/style_bungalow.cpp
     src/style_midcentury.h
     src/style_midcentury.cpp
     src/style_brutalist.h

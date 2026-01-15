@@ -3,8 +3,9 @@
 #include "config.h"
 #include "io.h"
 #include "semantics.h"
-#include "style_midcentury.h"
+#include "style_bungalow.h"
 #include "style_brutalist.h"
+#include "style_midcentury.h"
 
 int main(int argc, char** argv)
 {
@@ -20,6 +21,8 @@ int main(int argc, char** argv)
     Mesh building;
     if(plan.style == "brutalist"){
         building = BuildBrutalistBuilding(plan);
+    }else if(plan.style == "bungalow"){
+        building = BuildBungalowBuilding(plan);
     }else{
         building = BuildMidcenturyBuilding(plan);
     }

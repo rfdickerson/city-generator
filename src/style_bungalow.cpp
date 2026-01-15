@@ -172,15 +172,6 @@ Polygon2D InsetIfUsable(const Polygon2D& fp, float inset, float minAreaRatio)
     return insetFp;
 }
 
-float MaxProjection(const Polygon2D& poly, Vec2 dir)
-{
-    float maxProj = -std::numeric_limits<float>::max();
-    for(const auto& p : poly.v){
-        maxProj = std::max(maxProj, Dot(p, dir));
-    }
-    return maxProj;
-}
-
 struct RoofFrame2D {
     Vec2 center;
     Vec2 axisU;
@@ -255,6 +246,32 @@ void AddWallQuad(Mesh& m,
     AddQuad(m, base + 0, base + 1, base + 2, base + 3);
 }
 
+void AddFenceLine(BuildingModel& model, const Polygon2D& lot, float z0, float z1, float thickness, Vec3 color)
+{
+    int n = (int)lot.v.size();
+    if(n < 2){
+        return;
+    }
+    float postHalf = thickness * 0.9f;
+    float railHalf = thickness * 0.45f;
+    float railZ = z1 - 0.35f;
+    for(int i = 0; i < n; ++i){
+        Vec2 a = lot.v[i];
+        Vec2 b = lot.v[(i + 1) % n];
+        Vec2 edge{b.x - a.x, b.y - a.y};
+        float len = Length(edge);
+        if(len <= 1e-3f){
+            continue;
+        }
+        Vec2 axisX = Normalize(edge);
+        Vec2 axisY = Normalize(Perp(axisX));
+        Vec2 center{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
+        AddBoxVolume(model, center, axisX, axisY, len * 0.5f, thickness * 0.5f, z0, z1, color);
+        AddBoxVolume(model, center, axisX, axisY, len * 0.5f, railHalf, railZ, z1 + 0.18f, color);
+        AddBoxVolume(model, a, axisX, axisY, postHalf, postHalf, z0, z1 + 0.35f, color);
+    }
+}
+
 } // namespace
 
 Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
@@ -271,8 +288,6 @@ Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
     Vec3 wallColor = SaturatedPastelFromPoint(centroid);
     Vec3 foundationColor = Mix(plan.concrete, wallColor, 0.35f);
     Vec3 trimColor = Mix(wallColor, {1.0f, 1.0f, 1.0f}, 0.12f);
-    Vec3 porchColor = Mix(foundationColor, wallColor, 0.20f);
-    Vec3 columnColor = Mix(trimColor, foundationColor, 0.25f);
     float wallHeight = std::max(8.0f, std::min(9.0f, plan.floorH));
     float foundationHeight = std::min(wallHeight * 0.25f, std::max(0.6f, plan.slabT * 1.25f));
 
@@ -283,6 +298,7 @@ Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
 
     AddSlabVolume(model, base, 0.0f, foundationHeight, foundationColor, 0.03f, SlabRole::Public);
     AddSlabVolume(model, body, foundationHeight, wallHeight - foundationHeight, wallColor, 0.02f, SlabRole::Residential);
+    AddFenceLine(model, plan.lot, 0.0f, 1.83f, 0.24f, {0.96f, 0.96f, 0.96f});
 
     RoofParams roof{};
     roof.type = RoofType::Gable;
@@ -306,83 +322,9 @@ Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
     float roofTint = 0.90f + 0.10f * Hash01(seed ^ 0x9e3779b9U);
     Vec3 roofColor = Scale({0.28f, 0.18f, 0.12f}, roofTint);
 
-    OBB2D obb = ComputeOBB(base);
-    bool useX = obb.halfX >= obb.halfY;
-    Vec2 axisLong = Normalize(useX ? obb.axisX : obb.axisY);
-    Vec2 axisShort = Normalize(useX ? obb.axisY : obb.axisX);
-    float halfLong = useX ? obb.halfX : obb.halfY;
-    float halfShort = useX ? obb.halfY : obb.halfX;
-    if(Length(plan.lotBiasDir) > 1e-3f){
-        Vec2 front = Normalize(plan.lotBiasDir);
-        if(Dot(front, axisShort) < 0.0f){
-            axisShort = axisShort * -1.0f;
-        }
-    }
-    float baseWidth = halfLong * 2.0f;
-    float baseDepth = halfShort * 2.0f;
-    float porchWidth = Clamp(baseWidth * 0.65f, 3.0f, baseWidth * 0.92f);
-    float porchDepth = Clamp(baseDepth * 0.32f, 2.2f, baseDepth * 0.48f);
-    float desiredOutset = std::min(1.4f, baseDepth * 0.12f);
-    float lotFront = MaxProjection(plan.lot, axisShort);
-    float baseCenterProj = Dot(obb.center, axisShort);
-    float baseFront = baseCenterProj + halfShort;
-    float frontMargin = lotFront - baseFront;
-    float maxOutset = std::max(0.0f, frontMargin - plan.lotSnap);
-    maxOutset = std::min(maxOutset, roof.overhang * 0.85f);
-    float porchOutset = std::min(desiredOutset, maxOutset);
-    float minFront = baseFront - porchDepth * 0.15f;
-    float maxFront = std::max(minFront, lotFront - plan.lotSnap);
-    float targetFront = std::min(baseFront + porchOutset, maxFront);
-    float porchCenterProj = targetFront - porchDepth * 0.5f;
-    float porchAngle = std::atan2(axisLong.y, axisLong.x);
-    Vec2 porchCenter = obb.center + axisShort * (porchCenterProj - baseCenterProj);
-    Polygon2D porch = MakeRectangle(porchCenter, porchWidth, porchDepth, porchAngle);
-    Polygon2D roofFootprint = UnionConvexHull(body, porch);
-
-    float deckThickness = std::max(0.18f, plan.slabT * 0.45f);
-    // Nudge the deck to avoid z-fighting with the foundation top.
-    float deckTop = foundationHeight + 0.02f;
-    float deckZ0 = std::max(0.0f, deckTop - deckThickness);
-    AddSlabVolume(model, porch, deckZ0, deckThickness, porchColor, 0.04f, SlabRole::Public);
-
-    float colTopZ = wallHeight - 0.4f;
-    float colBaseZ = deckTop;
-    if(colTopZ <= colBaseZ + 0.6f){
-        colTopZ = colBaseZ + 0.6f;
-    }
-    float colHeight = colTopZ - colBaseZ;
-    float colHalf = Clamp(porchWidth * 0.035f, 0.22f, 0.35f);
-    float colBaseHalf = colHalf * 1.25f;
-    float colInset = std::min(0.9f, porchWidth * 0.18f);
-    float usableW = std::max(0.0f, porchWidth - colInset * 2.0f);
-    int colCount = std::max(2, (int)std::floor(usableW / 4.5f) + 1);
-    float spacing = (colCount > 1) ? (usableW / (colCount - 1)) : 0.0f;
-    float frontInset = std::min(0.35f, porchDepth * 0.2f);
-    float porchFront = porchCenterProj + porchDepth * 0.5f;
-    Vec2 columnRow = obb.center + axisShort * (porchFront - frontInset - baseCenterProj);
-    float plinthH = std::min(0.5f, colHeight * 0.18f);
-    int placedColumns = 0;
-    for(int i = 0; i < colCount; ++i){
-        float offset = -usableW * 0.5f + i * spacing;
-        Vec2 c = columnRow + axisLong * offset;
-        if(PointInPolygon(body, c)){
-            continue;
-        }
-        AddBoxVolume(model, c, axisLong, axisShort, colBaseHalf, colBaseHalf, colBaseZ, colBaseZ + plinthH, foundationColor);
-        AddBoxVolume(model, c, axisLong, axisShort, colHalf, colHalf, colBaseZ + plinthH, colTopZ, columnColor);
-        placedColumns += 1;
-    }
-    if(placedColumns >= 2){
-        float beamH = std::min(0.28f, colHeight * 0.12f);
-        float beamDepth = std::min(0.4f, porchDepth * 0.25f);
-        float beamHalfX = usableW * 0.5f + colHalf;
-        Vec2 beamCenter = porchCenter + axisShort * (porchDepth * 0.5f - frontInset * 0.5f);
-        AddBoxVolume(model, beamCenter, axisLong, axisShort, beamHalfX, beamDepth * 0.5f,
-                     colTopZ - beamH, colTopZ, trimColor);
-    }
+    Polygon2D roofFootprint = body;
 
     Mesh wallDetails;
-    Vec3 windowColor{0.55f, 0.78f, 0.98f};
     OBB2D bodyObb = ComputeOBB(body);
     bool bodyUseX = bodyObb.halfX >= bodyObb.halfY;
     Vec2 bodyAxisLong = Normalize(bodyUseX ? bodyObb.axisX : bodyObb.axisY);
@@ -398,26 +340,6 @@ Mesh BuildBungalowBuilding(const sbl::BuildingPlan& plan)
         Vec2 bandCenter = bodyObb.center + bodyAxisShort * ((bodyHalfShort + panelOffset) * (float)side);
         AddWallQuad(wallDetails, bandCenter, bodyAxisLong, bodyAxisShort, bandHalfW,
                     bandZ0, bandZ1, 0.0f, trimColor, 0.88f, 0.1f);
-    }
-
-    float windowHalfW = Clamp(bodyHalfLong * 0.12f, 0.7f, 1.4f);
-    float windowHalfH = 0.8f;
-    float windowZ0 = foundationHeight + std::min(2.3f, wallHeight * 0.35f);
-    float windowZ1 = windowZ0 + windowHalfH * 2.0f;
-    float longInset = std::max(1.2f, windowHalfW * 1.5f);
-    float usableLong = std::max(0.0f, bodyHalfLong * 2.0f - longInset * 2.0f);
-    int longCount = std::max(2, (int)std::floor(usableLong / 5.5f) + 1);
-    longCount = std::min(longCount, 4);
-    float longSpacing = (longCount > 1) ? (usableLong / (longCount - 1)) : 0.0f;
-    float sideOffset = bodyHalfShort + panelOffset;
-    for(int side = -1; side <= 1; side += 2){
-        Vec2 sideCenter = bodyObb.center + bodyAxisShort * (sideOffset * (float)side);
-        for(int i = 0; i < longCount; ++i){
-            float offset = -usableLong * 0.5f + i * longSpacing;
-            Vec2 c = sideCenter + bodyAxisLong * offset;
-            AddWallQuad(wallDetails, c, bodyAxisLong, bodyAxisShort, windowHalfW,
-                        windowZ0, windowZ1, 0.0f, windowColor, 0.92f, 0.1f);
-        }
     }
 
     // Insert ridge vertices so gable end caps follow the roof slope.

@@ -31,6 +31,23 @@ Polygon2D MakeRectangle(Vec2 center, float width, float depth, float angleRadian
     return rect;
 }
 
+Polygon2D FitRectToSize(const Polygon2D& rect, float targetWidth, float targetDepth)
+{
+    OBB2D obb = ComputeOBB(rect);
+    float currentWidth = obb.halfX * 2.0f;
+    float currentDepth = obb.halfY * 2.0f;
+    float width = targetWidth;
+    float depth = targetDepth;
+    if((width > currentWidth || depth > currentDepth) &&
+       depth <= currentWidth && width <= currentDepth){
+        std::swap(width, depth);
+    }
+    width = std::max(0.1f, std::min(width, currentWidth));
+    depth = std::max(0.1f, std::min(depth, currentDepth));
+    float angle = std::atan2(obb.axisX.y, obb.axisX.x);
+    return MakeRectangle(obb.center, width, depth, angle);
+}
+
 Mesh Extrude(const Polygon2D& poly, float z0, float z1)
 {
     if(z1 < z0){

@@ -53,9 +53,11 @@ struct BoxVolume {
 
 struct RoofVolume {
     Polygon2D footprint;
+    Polygon2D baseFootprint;
     float baseZ;
     RoofParams params;
     Vec3 color;
+    Vec3 capColor;
     float uvScale;
 };
 
@@ -112,5 +114,17 @@ inline void AddRoofVolume(BuildingModel& model,
                           Vec3 color,
                           float uvScale)
 {
-    model.roofs.push_back({footprint, baseZ, params, color, uvScale});
+    model.roofs.push_back({footprint, footprint, baseZ, params, color, color, uvScale});
+}
+
+inline void AddRoofVolume(BuildingModel& model,
+                          const Polygon2D& footprint,
+                          const Polygon2D& baseFootprint,
+                          float baseZ,
+                          const RoofParams& params,
+                          Vec3 color,
+                          Vec3 capColor,
+                          float uvScale)
+{
+    model.roofs.push_back({footprint, baseFootprint, baseZ, params, color, capColor, uvScale});
 }

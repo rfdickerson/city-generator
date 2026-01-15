@@ -111,6 +111,9 @@ Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
         float minShortHalf = std::max(2.0f, plan.lotSnap * 2.0f);
         f.baseRect = EnforceRectAspect(f.baseRect, plan.footprintAspect, minShortHalf);
     }
+    if(plan.useFootprintSize){
+        f.baseRect = FitRectToSize(f.baseRect, plan.footprintWidth, plan.footprintDepth);
+    }
     f.base = f.baseRect;
     if(plan.useLShape){
         f.base = MakeLShapeFootprint(f.baseRect, plan.lCutX, plan.lCutY);

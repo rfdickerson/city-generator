@@ -147,6 +147,9 @@ struct BuildingPlan {
     float lotBias;
     bool forceFootprintAspect;
     float footprintAspect;
+    bool useFootprintSize;
+    float footprintWidth;
+    float footprintDepth;
     int totalFloors;
     float floorH;
     float slabT;
@@ -177,6 +180,7 @@ struct BuildingPlan {
     Vec3 roofDeck;
     Vec3 lotFill;
     bool showLot;
+    float roofHeightOverride;
 };
 
 std::vector<SlabSemantic> BuildDefaultSlabPlan(int totalFloors,

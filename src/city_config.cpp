@@ -11,18 +11,26 @@ CityConfig DefaultCityConfig()
     c.seed = 1337;
     c.blocksX = 2;
     c.blocksY = 2;
-    c.blockSizeX = 80.0f;
-    c.blockSizeY = 80.0f;
+    c.blockSizeX = 300.0f;
+    c.blockSizeY = 300.0f;
     c.roadWidth = 14.0f;
     c.roadThickness = 0.2f;
 
-    c.lotDepth = 18.0f;
-    c.lotWidth = 16.0f;
-    c.lotGap = 2.0f;
-    c.sidewalk = 3.0f;
+    c.lotDepth = 100.0f;
+    c.lotDepthMax = 140.0f;
+    c.lotWidth = 40.0f;
+    c.lotWidthMax = 60.0f;
+    c.resLotDepth = 50.0f;
+    c.resLotDepthMax = 70.0f;
+    c.resLotWidth = 22.0f;
+    c.resLotWidthMax = 34.0f;
+    c.lotGap = 4.0f;
+    c.sidewalk = 4.0f;
     c.lotSetback = 2.0f;
-    c.parkChance = 0.15f;
-    c.parkingChance = 0.20f;
+    c.parkChance = 0.08f;
+    c.parkingChance = 0.10f;
+    c.lotRotationMaxDeg = 8.0f;
+    c.resLotChance = 0.55f;
 
     c.minFloors = 3;
     c.maxFloors = 8;
@@ -193,12 +201,20 @@ bool LoadCityConfig(const char* path, CityConfig* out, std::string* err)
     GetNumber(root, "roadThickness", &out->roadThickness);
 
     GetNumber(root, "lotDepth", &out->lotDepth);
+    GetNumber(root, "lotDepthMax", &out->lotDepthMax);
     GetNumber(root, "lotWidth", &out->lotWidth);
+    GetNumber(root, "lotWidthMax", &out->lotWidthMax);
+    GetNumber(root, "resLotDepth", &out->resLotDepth);
+    GetNumber(root, "resLotDepthMax", &out->resLotDepthMax);
+    GetNumber(root, "resLotWidth", &out->resLotWidth);
+    GetNumber(root, "resLotWidthMax", &out->resLotWidthMax);
     GetNumber(root, "lotGap", &out->lotGap);
     GetNumber(root, "sidewalk", &out->sidewalk);
     GetNumber(root, "lotSetback", &out->lotSetback);
     GetNumber(root, "parkChance", &out->parkChance);
     GetNumber(root, "parkingChance", &out->parkingChance);
+    GetNumber(root, "lotRotationMaxDeg", &out->lotRotationMaxDeg);
+    GetNumber(root, "resLotChance", &out->resLotChance);
 
     GetInt(root, "minFloors", &out->minFloors);
     GetInt(root, "maxFloors", &out->maxFloors);
@@ -249,6 +265,31 @@ bool LoadCityConfig(const char* path, CityConfig* out, std::string* err)
     GetVec3(root, "parkColor", &out->parkColor);
     GetVec3(root, "parkingColor", &out->parkingColor);
     GetBool(root, "showLots", &out->showLots);
+
+    if(!FindKey(root, "lotDepthMax")){
+        out->lotDepthMax = out->lotDepth;
+    }
+    if(!FindKey(root, "lotWidthMax")){
+        out->lotWidthMax = out->lotWidth;
+    }
+    if(!FindKey(root, "resLotDepthMax")){
+        out->resLotDepthMax = out->resLotDepth;
+    }
+    if(!FindKey(root, "resLotWidthMax")){
+        out->resLotWidthMax = out->resLotWidth;
+    }
+    if(out->lotDepthMax < out->lotDepth){
+        std::swap(out->lotDepthMax, out->lotDepth);
+    }
+    if(out->lotWidthMax < out->lotWidth){
+        std::swap(out->lotWidthMax, out->lotWidth);
+    }
+    if(out->resLotDepthMax < out->resLotDepth){
+        std::swap(out->resLotDepthMax, out->resLotDepth);
+    }
+    if(out->resLotWidthMax < out->resLotWidth){
+        std::swap(out->resLotWidthMax, out->resLotWidth);
+    }
 
     return true;
 }

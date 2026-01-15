@@ -49,6 +49,9 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.lotBias = 0.0f;
     plan.forceFootprintAspect = false;
     plan.footprintAspect = 1.0f;
+    plan.useFootprintSize = false;
+    plan.footprintWidth = 0.0f;
+    plan.footprintDepth = 0.0f;
     plan.totalFloors = cfg.floors;
     plan.floorH = cfg.floorH;
     plan.slabT = cfg.slabT;
@@ -77,6 +80,7 @@ BuildingPlan BuildPlanFromConfig(const ::Config& cfg)
     plan.roofDeck = cfg.roofDeck;
     plan.lotFill = cfg.lotFill;
     plan.showLot = cfg.showLot;
+    plan.roofHeightOverride = 0.0f;
 
     if(cfg.style == "brutalist"){
         plan.facadeType = FacadeType::Solid;

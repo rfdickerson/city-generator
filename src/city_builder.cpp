@@ -23,6 +23,11 @@ struct BuildStats {
     int propCount = 0;
 };
 
+struct LotInstance {
+    Polygon2D lot;
+    Vec2 biasDir;
+};
+
 struct Rng {
     std::mt19937 gen;
 
@@ -71,6 +76,10 @@ Bounds2 BoundsOf(const Polygon2D& poly)
     }
     return b;
 }
+float DegToRad(float deg)
+{
+    return deg * 0.01745329252f;
+}
 
 struct SemanticDecisions {
     int floors = 0;
@@ -84,6 +93,11 @@ struct SemanticDecisions {
     bool forceFootprintAspect = false;
     float footprintAspect = 1.0f;
     bool roofDeckEnclosed = false;
+    bool useFootprintSize = false;
+    float footprintWidth = 0.0f;
+    float footprintDepth = 0.0f;
+    float bungalowWallHeight = 0.0f;
+    float bungalowRoofHeight = 0.0f;
     std::string style;
 };
 
@@ -93,7 +107,17 @@ struct BuildingFootprints {
     Polygon2D towerBase;
 };
 
-static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng& rng,
+bool LotCanFitFootprint(const Polygon2D& lot, const CityConfig& city, float minW, float minD)
+{
+    OBB2D obb = ComputeOBB(lot);
+    float usableW = std::max(0.0f, obb.halfX * 2.0f - city.lotSetback * 2.0f);
+    float usableD = std::max(0.0f, obb.halfY * 2.0f - city.lotSetback * 2.0f);
+    bool fitsDirect = usableW >= minW && usableD >= minD;
+    bool fitsSwap = usableW >= minD && usableD >= minW;
+    return fitsDirect || fitsSwap;
+}
+
+static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, const Polygon2D& lot, Rng& rng,
                                                      SemanticDecisions* decisions)
 {
     SemanticDecisions local;
@@ -101,21 +125,61 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
         decisions = &local;
     }
 
-    decisions->style = "midcentury";
-    if(!city.styles.empty()){
-        int idx = rng.RangeInt(0, (int)city.styles.size() - 1);
-        decisions->style = city.styles[idx];
+    std::vector<std::string> stylePool = city.styles;
+    if(stylePool.empty()){
+        stylePool = {"midcentury", "brutalist", "bungalow"};
+    }
+    bool canFitBungalow = LotCanFitFootprint(lot, city, 24.0f, 28.0f);
+    bool canFitOffice = LotCanFitFootprint(lot, city, 40.0f, 20.0f);
+    std::vector<std::string> candidates;
+    for(const auto& style : stylePool){
+        if(style == "bungalow"){
+            if(canFitBungalow){
+                candidates.push_back(style);
+            }
+        }else if(canFitOffice){
+            candidates.push_back(style);
+        }
+    }
+    if(!candidates.empty()){
+        int idx = rng.RangeInt(0, (int)candidates.size() - 1);
+        decisions->style = candidates[idx];
+    }else if(canFitBungalow){
+        decisions->style = "bungalow";
+    }else if(!stylePool.empty()){
+        decisions->style = stylePool.front();
+    }else{
+        decisions->style = "midcentury";
     }
 
     bool isBungalow = (decisions->style == "bungalow");
     if(isBungalow){
-        decisions->floors = rng.RangeInt(1, 2);
+        decisions->floors = 1;
+        decisions->useFootprintSize = true;
+        decisions->footprintWidth = rng.Range(20.0f, 32.0f);
+        decisions->footprintDepth = rng.Range(24.0f, 36.0f);
+        decisions->bungalowWallHeight = rng.Range(8.0f, 9.0f);
+        float totalHeight = rng.Range(14.0f, 20.0f);
+        decisions->bungalowRoofHeight = std::max(2.0f, totalHeight - decisions->bungalowWallHeight);
     }else{
         int lowMax = std::max(city.minFloors, std::min(city.lowMaxFloors, city.maxFloors));
         decisions->floors = rng.RangeInt(city.minFloors, city.maxFloors);
         if(!rng.Chance(city.tallChance)){
             decisions->floors = rng.RangeInt(city.minFloors, lowMax);
         }
+        if(rng.Chance(0.35f)){
+            int tallMin = std::min(city.maxFloors, std::max(lowMax + 1, city.minFloors));
+            if(tallMin <= city.maxFloors){
+                decisions->floors = rng.RangeInt(tallMin, city.maxFloors);
+            }
+        }
+        decisions->floors = std::max(decisions->floors, 6);
+        if(rng.Chance(0.25f)){
+            decisions->floors = std::min(decisions->floors + rng.RangeInt(2, 6), city.maxFloors + 4);
+        }
+        decisions->useFootprintSize = true;
+        decisions->footprintWidth = rng.Range(40.0f, 80.0f);
+        decisions->footprintDepth = rng.Range(20.0f, 35.0f);
     }
 
     decisions->enablePilotis = isBungalow ? false : (city.disablePilotis ? false : rng.Chance(city.pilotisChance));
@@ -126,9 +190,9 @@ static sbl::BuildingSemantics BuildBuildingSemantics(const CityConfig& city, Rng
         decisions->lCutY = rng.Range(3.0f, 7.0f);
     }
 
-    decisions->usePodiumTower = false;
-    decisions->podiumFloors = DefaultConfig().podiumFloors;
-    decisions->towerInset = DefaultConfig().towerInset;
+    decisions->usePodiumTower = isBungalow ? false : rng.Chance(0.45f);
+    decisions->podiumFloors = decisions->usePodiumTower ? rng.RangeInt(2, 4) : 0;
+    decisions->towerInset = decisions->usePodiumTower ? rng.Range(1.5f, 3.5f) : 0.0f;
     decisions->roofDeckEnclosed = isBungalow ? false : rng.Chance(0.35f);
 
     sbl::BuildingSemantics sem{};
@@ -184,6 +248,9 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.lotBias = (Length(lotBiasDir) > 1e-4f) ? 0.7f : 0.0f;
     plan.forceFootprintAspect = decisions.forceFootprintAspect;
     plan.footprintAspect = decisions.footprintAspect;
+    plan.useFootprintSize = decisions.useFootprintSize;
+    plan.footprintWidth = decisions.footprintWidth;
+    plan.footprintDepth = decisions.footprintDepth;
     plan.totalFloors = decisions.floors;
     plan.floorH = defaults.floorH;
     plan.slabT = defaults.slabT;
@@ -222,6 +289,16 @@ static sbl::BuildingPlan CompileBuildingPlan(const CityConfig& city, const Polyg
     plan.roofDeck = defaults.roofDeck;
     plan.lotFill = defaults.lotFill;
     plan.showLot = false;
+    plan.roofHeightOverride = 0.0f;
+
+    if(plan.style == "bungalow"){
+        if(decisions.bungalowWallHeight > 0.0f){
+            plan.floorH = decisions.bungalowWallHeight;
+        }
+        if(decisions.bungalowRoofHeight > 0.0f){
+            plan.roofHeightOverride = decisions.bungalowRoofHeight;
+        }
+    }
 
     plan.slabPlan = sbl::BuildDefaultSlabPlan(plan.totalFloors, plan.usePodiumTower, plan.podiumFloors);
 
@@ -275,6 +352,167 @@ void AddLotSlab(Mesh& out, const Polygon2D& lot, Vec3 color)
     Append(out, slab);
 }
 
+struct LotRange {
+    float widthMin;
+    float widthMax;
+    float depthMin;
+    float depthMax;
+};
+
+LotRange PickLotRange(const CityConfig& cfg, Rng& rng)
+{
+    bool hasBungalow = false;
+    for(const auto& style : cfg.styles){
+        if(style == "bungalow"){
+            hasBungalow = true;
+            break;
+        }
+    }
+    bool useRes = hasBungalow && cfg.resLotChance > 0.0f && rng.Chance(cfg.resLotChance);
+    LotRange range{};
+    if(useRes){
+        range.widthMin = std::min(cfg.resLotWidth, cfg.resLotWidthMax);
+        range.widthMax = std::max(cfg.resLotWidth, cfg.resLotWidthMax);
+        range.depthMin = std::min(cfg.resLotDepth, cfg.resLotDepthMax);
+        range.depthMax = std::max(cfg.resLotDepth, cfg.resLotDepthMax);
+    }else{
+        range.widthMin = std::min(cfg.lotWidth, cfg.lotWidthMax);
+        range.widthMax = std::max(cfg.lotWidth, cfg.lotWidthMax);
+        range.depthMin = std::min(cfg.lotDepth, cfg.lotDepthMax);
+        range.depthMax = std::max(cfg.lotDepth, cfg.lotDepthMax);
+    }
+    return range;
+}
+
+void GetGlobalLotMins(const CityConfig& cfg, float* outWidthMin, float* outDepthMin)
+{
+    float widthMin = std::min(cfg.lotWidth, cfg.lotWidthMax);
+    float depthMin = std::min(cfg.lotDepth, cfg.lotDepthMax);
+    if(cfg.resLotWidth > 0.0f || cfg.resLotWidthMax > 0.0f){
+        widthMin = std::min(widthMin, std::min(cfg.resLotWidth, cfg.resLotWidthMax));
+    }
+    if(cfg.resLotDepth > 0.0f || cfg.resLotDepthMax > 0.0f){
+        depthMin = std::min(depthMin, std::min(cfg.resLotDepth, cfg.resLotDepthMax));
+    }
+    if(outWidthMin){
+        *outWidthMin = widthMin;
+    }
+    if(outDepthMin){
+        *outDepthMin = depthMin;
+    }
+}
+
+void EmitLotsAlongXEdge(std::vector<LotInstance>* lots, const CityConfig& cfg, Rng& rng,
+                        float startX, float endX, float edgeY, Vec2 inward, Vec2 biasDir)
+{
+    if(!lots){
+        return;
+    }
+    float rotMax = DegToRad(std::max(0.0f, cfg.lotRotationMaxDeg));
+    float x = startX;
+    while(true){
+        LotRange range = PickLotRange(cfg, rng);
+        float widthMin = range.widthMin;
+        float widthMax = range.widthMax;
+        float depthMin = range.depthMin;
+        float depthMax = range.depthMax;
+        float depthLimit = (cfg.blockSizeY - cfg.sidewalk * 2.0f) * 0.5f;
+        depthMax = std::min(depthMax, depthLimit);
+        depthMin = std::min(depthMin, depthMax);
+        if(widthMin <= 0.0f || depthMax <= 0.0f){
+            return;
+        }
+        if(x + widthMin > endX + 1e-4f){
+            break;
+        }
+        float remaining = endX - x;
+        float widthMaxFit = std::min(widthMax, remaining);
+        if(widthMaxFit < widthMin){
+            break;
+        }
+        float width = rng.Range(widthMin, widthMaxFit);
+        float depth = rng.Range(depthMin, depthMax);
+        Vec2 center{x + width * 0.5f, edgeY + inward.y * depth * 0.5f};
+        float rot = rotMax > 0.0f ? rng.Range(-rotMax, rotMax) : 0.0f;
+        Polygon2D lot = MakeRectangle(center, width, depth, rot);
+        lots->push_back({lot, biasDir});
+        x += width + cfg.lotGap;
+    }
+}
+
+void EmitLotsAlongYEdge(std::vector<LotInstance>* lots, const CityConfig& cfg, Rng& rng,
+                        float startY, float endY, float edgeX, Vec2 inward, Vec2 biasDir)
+{
+    if(!lots){
+        return;
+    }
+    float rotMax = DegToRad(std::max(0.0f, cfg.lotRotationMaxDeg));
+    float baseAngle = 1.57079632679f;
+    float y = startY;
+    while(true){
+        LotRange range = PickLotRange(cfg, rng);
+        float widthMin = range.widthMin;
+        float widthMax = range.widthMax;
+        float depthMin = range.depthMin;
+        float depthMax = range.depthMax;
+        float depthLimit = (cfg.blockSizeX - cfg.sidewalk * 2.0f) * 0.5f;
+        depthMax = std::min(depthMax, depthLimit);
+        depthMin = std::min(depthMin, depthMax);
+        if(widthMin <= 0.0f || depthMax <= 0.0f){
+            return;
+        }
+        if(y + widthMin > endY + 1e-4f){
+            break;
+        }
+        float remaining = endY - y;
+        float widthMaxFit = std::min(widthMax, remaining);
+        if(widthMaxFit < widthMin){
+            break;
+        }
+        float width = rng.Range(widthMin, widthMaxFit);
+        float depth = rng.Range(depthMin, depthMax);
+        Vec2 center{edgeX + inward.x * depth * 0.5f, y + width * 0.5f};
+        float rot = rotMax > 0.0f ? rng.Range(-rotMax, rotMax) : 0.0f;
+        Polygon2D lot = MakeRectangle(center, width, depth, baseAngle + rot);
+        lots->push_back({lot, biasDir});
+        y += width + cfg.lotGap;
+    }
+}
+
+std::vector<LotInstance> GenerateLotsForBlock(const CityConfig& cfg, float bx, float by, Rng& rng)
+{
+    std::vector<LotInstance> lots;
+    float inset = cfg.sidewalk;
+    float minWidth = 0.0f;
+    float minDepth = 0.0f;
+    GetGlobalLotMins(cfg, &minWidth, &minDepth);
+    float depthLimitY = (cfg.blockSizeY - cfg.sidewalk * 2.0f) * 0.5f;
+    float depthLimitX = (cfg.blockSizeX - cfg.sidewalk * 2.0f) * 0.5f;
+    float cornerClearX = std::min(minDepth, depthLimitX) + cfg.lotGap;
+    float cornerClearY = std::min(minDepth, depthLimitY) + cfg.lotGap;
+    float usableX = std::max(0.0f, cfg.blockSizeX - inset * 2.0f);
+    float usableY = std::max(0.0f, cfg.blockSizeY - inset * 2.0f);
+    float maxCornerClearX = std::max(0.0f, (usableX - minWidth) * 0.5f);
+    float maxCornerClearY = std::max(0.0f, (usableY - minWidth) * 0.5f);
+    cornerClearX = std::min(cornerClearX, maxCornerClearX);
+    cornerClearY = std::min(cornerClearY, maxCornerClearY);
+
+    float startX = bx + inset + cornerClearX;
+    float endX = bx + cfg.blockSizeX - inset - cornerClearX;
+    float startY = by + inset + cornerClearY;
+    float endY = by + cfg.blockSizeY - inset - cornerClearY;
+
+    if(endX > startX){
+        EmitLotsAlongXEdge(&lots, cfg, rng, startX, endX, by + inset, {0.0f, 1.0f}, {0.0f, -1.0f});
+        EmitLotsAlongXEdge(&lots, cfg, rng, startX, endX, by + cfg.blockSizeY - inset, {0.0f, -1.0f}, {0.0f, 1.0f});
+    }
+    if(endY > startY){
+        EmitLotsAlongYEdge(&lots, cfg, rng, startY, endY, bx + inset, {1.0f, 0.0f}, {-1.0f, 0.0f});
+        EmitLotsAlongYEdge(&lots, cfg, rng, startY, endY, bx + cfg.blockSizeX - inset, {-1.0f, 0.0f}, {1.0f, 0.0f});
+    }
+    return lots;
+}
+
 void EmitTreesInPark(const Polygon2D& park, float groundY, const CityConfig& cfg,
                      Rng& rng, std::vector<TreeInstance>* trees, BuildStats* stats)
 {
@@ -323,37 +561,15 @@ void EmitTreesInPark(const Polygon2D& park, float groundY, const CityConfig& cfg
     }
 }
 
-void AddLots(Mesh& out, const CityConfig& cfg, float bx, float by, BuildStats* stats)
+void AddLots(Mesh& out, const CityConfig& cfg, const std::vector<LotInstance>& lots, BuildStats* stats)
 {
     if(!cfg.showLots){
         return;
     }
-    float inset = cfg.sidewalk;
-    float usableW = cfg.blockSizeX - inset * 2.0f;
-    float usableH = cfg.blockSizeY - inset * 2.0f;
-
-    int countX = std::max(1, (int)((usableW + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
-    int countY = std::max(1, (int)((usableH + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
-
-    for(int i=0;i<countX;i++){
-        float x = bx + inset + i * (cfg.lotWidth + cfg.lotGap);
-        Polygon2D south = MakeRect(x, by + inset, cfg.lotWidth, cfg.lotDepth);
-        Polygon2D north = MakeRect(x, by + cfg.blockSizeY - inset - cfg.lotDepth, cfg.lotWidth, cfg.lotDepth);
-        AddLotSlab(out, south, cfg.lotColor);
-        AddLotSlab(out, north, cfg.lotColor);
+    for(const auto& lot : lots){
+        AddLotSlab(out, lot.lot, cfg.lotColor);
         if(stats){
-            stats->lotCount += 2;
-        }
-    }
-
-    for(int j=0;j<countY;j++){
-        float y = by + inset + j * (cfg.lotWidth + cfg.lotGap);
-        Polygon2D west = MakeRect(bx + inset, y, cfg.lotDepth, cfg.lotWidth);
-        Polygon2D east = MakeRect(bx + cfg.blockSizeX - inset - cfg.lotDepth, y, cfg.lotDepth, cfg.lotWidth);
-        AddLotSlab(out, west, cfg.lotColor);
-        AddLotSlab(out, east, cfg.lotColor);
-        if(stats){
-            stats->lotCount += 2;
+            stats->lotCount++;
         }
     }
 }
@@ -530,158 +746,48 @@ void EmitRooftopProps(const sbl::BuildingPlan& plan, Rng& rng, const CityConfig&
                            rng, props, stats);
 }
 
-void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, float bx, float by, Rng& rng,
+void AddBuildingsOnLots(Mesh& out, const CityConfig& cfg, const std::vector<LotInstance>& lots, Rng& rng,
                         BuildStats* stats, std::vector<TreeInstance>* trees,
                         std::vector<PropInstance>* props)
 {
-    float inset = cfg.sidewalk;
-    float usableW = cfg.blockSizeX - inset * 2.0f;
-    float usableH = cfg.blockSizeY - inset * 2.0f;
     const float parkZ = -0.12f;
     const float parkThickness = 0.08f;
     const float parkTop = parkZ + parkThickness;
-
-    int countX = std::max(1, (int)((usableW + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
-    int countY = std::max(1, (int)((usableH + cfg.lotGap) / (cfg.lotWidth + cfg.lotGap)));
-
-    for(int i=0;i<countX;i++){
-        float x = bx + inset + i * (cfg.lotWidth + cfg.lotGap);
-        Polygon2D south = MakeRect(x, by + inset, cfg.lotWidth, cfg.lotDepth);
-        Polygon2D north = MakeRect(x, by + cfg.blockSizeY - inset - cfg.lotDepth, cfg.lotWidth, cfg.lotDepth);
-
+    for(const auto& lot : lots){
+        const Polygon2D& poly = lot.lot;
         if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({south, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
+            Mesh park = BuildSlab({poly, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
             Append(out, park);
             if(stats) stats->parkCount++;
-            EmitTreesInPark(south, parkTop, cfg, rng, trees, stats);
-            EmitGridPropsInPolygon(south, parkTop, "bench",
+            EmitTreesInPark(poly, parkTop, cfg, rng, trees, stats);
+            EmitGridPropsInPolygon(poly, parkTop, "bench",
                                    cfg.parkBenchSpacing, cfg.parkBenchInset,
                                    cfg.parkBenchJitter, cfg.parkBenchChance,
                                    rng, props, stats);
-        }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({south, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
+            continue;
+        }
+        if(rng.Chance(cfg.parkingChance)){
+            Mesh park = BuildSlab({poly, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
             Append(out, park);
             if(stats) stats->parkingCount++;
-            EmitGridPropsInPolygon(south, parkTop, "car",
+            EmitGridPropsInPolygon(poly, parkTop, "car",
                                    cfg.parkingCarSpacing, cfg.parkingCarInset,
                                    cfg.parkingCarJitter, cfg.parkingCarChance,
                                    rng, props, stats);
-        }else{
-            SemanticDecisions decisions;
-            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            ApplyFootprintAspectDecision(south, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, south, {0.0f, -1.0f}, sem, decisions);
-            std::cout << "Building " << plan.style
-                      << " floors=" << plan.totalFloors
-                      << " facade=" << FacadeLabel(plan.facadeType)
-                      << "\n";
-            Mesh ms = BuildBuildingForStyle(plan);
-            Append(out, ms);
-            if(stats) stats->buildingCount++;
-            EmitRooftopProps(plan, rng, cfg, props, stats);
+            continue;
         }
-
-        if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({north, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
-            Append(out, park);
-            if(stats) stats->parkCount++;
-            EmitTreesInPark(north, parkTop, cfg, rng, trees, stats);
-            EmitGridPropsInPolygon(north, parkTop, "bench",
-                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
-                                   cfg.parkBenchJitter, cfg.parkBenchChance,
-                                   rng, props, stats);
-        }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({north, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
-            Append(out, park);
-            if(stats) stats->parkingCount++;
-            EmitGridPropsInPolygon(north, parkTop, "car",
-                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
-                                   cfg.parkingCarJitter, cfg.parkingCarChance,
-                                   rng, props, stats);
-        }else{
-            SemanticDecisions decisions;
-            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            ApplyFootprintAspectDecision(north, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, north, {0.0f, 1.0f}, sem, decisions);
-            std::cout << "Building " << plan.style
-                      << " floors=" << plan.totalFloors
-                      << " facade=" << FacadeLabel(plan.facadeType)
-                      << "\n";
-            Mesh mn = BuildBuildingForStyle(plan);
-            Append(out, mn);
-            if(stats) stats->buildingCount++;
-            EmitRooftopProps(plan, rng, cfg, props, stats);
-        }
-    }
-
-    for(int j=0;j<countY;j++){
-        float y = by + inset + j * (cfg.lotWidth + cfg.lotGap);
-        Polygon2D west = MakeRect(bx + inset, y, cfg.lotDepth, cfg.lotWidth);
-        Polygon2D east = MakeRect(bx + cfg.blockSizeX - inset - cfg.lotDepth, y, cfg.lotDepth, cfg.lotWidth);
-
-        if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({west, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
-            Append(out, park);
-            if(stats) stats->parkCount++;
-            EmitTreesInPark(west, parkTop, cfg, rng, trees, stats);
-            EmitGridPropsInPolygon(west, parkTop, "bench",
-                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
-                                   cfg.parkBenchJitter, cfg.parkBenchChance,
-                                   rng, props, stats);
-        }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({west, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
-            Append(out, park);
-            if(stats) stats->parkingCount++;
-            EmitGridPropsInPolygon(west, parkTop, "car",
-                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
-                                   cfg.parkingCarJitter, cfg.parkingCarChance,
-                                   rng, props, stats);
-        }else{
-            SemanticDecisions decisions;
-            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            ApplyFootprintAspectDecision(west, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, west, {-1.0f, 0.0f}, sem, decisions);
-            std::cout << "Building " << plan.style
-                      << " floors=" << plan.totalFloors
-                      << " facade=" << FacadeLabel(plan.facadeType)
-                      << "\n";
-            Mesh mw = BuildBuildingForStyle(plan);
-            Append(out, mw);
-            if(stats) stats->buildingCount++;
-            EmitRooftopProps(plan, rng, cfg, props, stats);
-        }
-
-        if(rng.Chance(cfg.parkChance)){
-            Mesh park = BuildSlab({east, parkZ, parkThickness}, cfg.parkColor, 0.03f, SlabRole::Public);
-            Append(out, park);
-            if(stats) stats->parkCount++;
-            EmitTreesInPark(east, parkTop, cfg, rng, trees, stats);
-            EmitGridPropsInPolygon(east, parkTop, "bench",
-                                   cfg.parkBenchSpacing, cfg.parkBenchInset,
-                                   cfg.parkBenchJitter, cfg.parkBenchChance,
-                                   rng, props, stats);
-        }else if(rng.Chance(cfg.parkingChance)){
-            Mesh park = BuildSlab({east, parkZ, parkThickness}, cfg.parkingColor, 0.03f, SlabRole::Infrastructure);
-            Append(out, park);
-            if(stats) stats->parkingCount++;
-            EmitGridPropsInPolygon(east, parkTop, "car",
-                                   cfg.parkingCarSpacing, cfg.parkingCarInset,
-                                   cfg.parkingCarJitter, cfg.parkingCarChance,
-                                   rng, props, stats);
-        }else{
-            SemanticDecisions decisions;
-            sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, rng, &decisions);
-            ApplyFootprintAspectDecision(east, rng, &decisions);
-            sbl::BuildingPlan plan = CompileBuildingPlan(cfg, east, {1.0f, 0.0f}, sem, decisions);
-            std::cout << "Building " << plan.style
-                      << " floors=" << plan.totalFloors
-                      << " facade=" << FacadeLabel(plan.facadeType)
-                      << "\n";
-            Mesh me = BuildBuildingForStyle(plan);
-            Append(out, me);
-            if(stats) stats->buildingCount++;
-            EmitRooftopProps(plan, rng, cfg, props, stats);
-        }
+        SemanticDecisions decisions;
+        sbl::BuildingSemantics sem = BuildBuildingSemantics(cfg, poly, rng, &decisions);
+        ApplyFootprintAspectDecision(poly, rng, &decisions);
+        sbl::BuildingPlan plan = CompileBuildingPlan(cfg, poly, lot.biasDir, sem, decisions);
+        std::cout << "Building " << plan.style
+                  << " floors=" << plan.totalFloors
+                  << " facade=" << FacadeLabel(plan.facadeType)
+                  << "\n";
+        Mesh ms = BuildBuildingForStyle(plan);
+        Append(out, ms);
+        if(stats) stats->buildingCount++;
+        EmitRooftopProps(plan, rng, cfg, props, stats);
     }
 }
 
@@ -706,8 +812,9 @@ CityBuild BuildCity(const CityConfig& cfg)
             float blockX = cfg.roadWidth + bx * (cfg.blockSizeX + cfg.roadWidth);
             float blockY = cfg.roadWidth + by * (cfg.blockSizeY + cfg.roadWidth);
 
-            AddLots(result.mesh, cfg, blockX, blockY, &stats);
-            AddBuildingsOnLots(result.mesh, cfg, blockX, blockY, rng, &stats, &result.trees, &result.props);
+            std::vector<LotInstance> lots = GenerateLotsForBlock(cfg, blockX, blockY, rng);
+            AddLots(result.mesh, cfg, lots, &stats);
+            AddBuildingsOnLots(result.mesh, cfg, lots, rng, &stats, &result.trees, &result.props);
             EmitStreetPropsForBlock(blockX, blockY, cfg, rng, &result.props, &stats);
         }
     }

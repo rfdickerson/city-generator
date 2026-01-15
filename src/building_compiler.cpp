@@ -229,6 +229,31 @@ Mesh BuildRoofMesh(const RoofVolume& roof)
         AddQuad(m, base + 0, base + 1, base + 2, base + 3);
     }
 
+    Polygon2D baseFootprint = roof.baseFootprint;
+    if(baseFootprint.v.size() < 3){
+        baseFootprint = roofFootprint;
+    }
+    int bn = (int)baseFootprint.v.size();
+    float capAo = Lerp(1.0f, 0.55f, Clamp01(roof.params.aoStrength));
+    for(int i = 0; i < bn; ++i){
+        int j = (i + 1) % bn;
+        Vec2 a = baseFootprint.v[i];
+        Vec2 b = baseFootprint.v[j];
+        float ha = ComputeRoofHeight(roof, frame, ridgeHalfLen, slope, a);
+        float hb = ComputeRoofHeight(roof, frame, ridgeHalfLen, slope, b);
+
+        unsigned base = (unsigned)m.v.size();
+        m.v.push_back({{a.x, roof.baseZ, a.y}, {roof.capColor.x, roof.capColor.y, roof.capColor.z, capAo},
+                       {a.x * roof.uvScale, a.y * roof.uvScale}});
+        m.v.push_back({{b.x, roof.baseZ, b.y}, {roof.capColor.x, roof.capColor.y, roof.capColor.z, capAo},
+                       {b.x * roof.uvScale, b.y * roof.uvScale}});
+        m.v.push_back({{b.x, roof.baseZ + hb, b.y}, {roof.capColor.x, roof.capColor.y, roof.capColor.z, capAo},
+                       {b.x * roof.uvScale, b.y * roof.uvScale}});
+        m.v.push_back({{a.x, roof.baseZ + ha, a.y}, {roof.capColor.x, roof.capColor.y, roof.capColor.z, capAo},
+                       {a.x * roof.uvScale, a.y * roof.uvScale}});
+        AddQuad(m, base + 0, base + 1, base + 2, base + 3);
+    }
+
     return m;
 }
 

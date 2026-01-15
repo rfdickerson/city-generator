@@ -111,6 +111,9 @@ Footprints ComputeFootprints(const sbl::BuildingPlan& plan)
         float minShortHalf = std::max(2.0f, plan.lotSnap * 2.0f);
         f.baseRect = EnforceRectAspect(f.baseRect, plan.footprintAspect, minShortHalf);
     }
+    if(plan.useFootprintSize){
+        f.baseRect = FitRectToSize(f.baseRect, plan.footprintWidth, plan.footprintDepth);
+    }
     f.base = f.baseRect;
     if(plan.useLShape){
         f.base = MakeLShapeFootprint(f.baseRect, plan.lCutX, plan.lCutY);
@@ -266,68 +269,71 @@ void AddRoofDeck(BuildingModel& model, const Polygon2D& deckBase, float totalHei
 
 Mesh BuildMidcenturyBuilding(const sbl::BuildingPlan& plan)
 {
-    Footprints fp = ComputeFootprints(plan);
-    float pilotisHeight = ComputePilotisHeight(plan);
-    float totalHeight = pilotisHeight + plan.totalFloors * plan.floorH;
+    sbl::BuildingPlan localPlan = plan;
+    localPlan.floorH = std::max(8.0f, std::min(9.0f, plan.floorH));
+
+    Footprints fp = ComputeFootprints(localPlan);
+    float pilotisHeight = ComputePilotisHeight(localPlan);
+    float totalHeight = pilotisHeight + localPlan.totalFloors * localPlan.floorH;
 
     BuildingModel model;
-    AddLotMesh(model, plan);
-    AddPilotisCore(model, fp.base, plan, pilotisHeight);
+    AddLotMesh(model, localPlan);
+    AddPilotisCore(model, fp.base, localPlan, pilotisHeight);
 
     bool addedCurtain = false;
-    for(int f=0;f<plan.totalFloors;f++){
+    for(int f=0;f<localPlan.totalFloors;f++){
         Polygon2D floorFp = fp.base;
-        if(plan.usePodiumTower && !plan.useLShape && f >= plan.podiumFloors){
+        if(localPlan.usePodiumTower && !localPlan.useLShape && f >= localPlan.podiumFloors){
             floorFp = fp.towerBase;
         }
-        float z = pilotisHeight + f * plan.floorH;
-        AddFloorSlab(model, floorFp, z, plan, f == plan.totalFloors - 1, f);
+        float z = pilotisHeight + f * localPlan.floorH;
+        AddFloorSlab(model, floorFp, z, localPlan, f == localPlan.totalFloors - 1, f);
 
-        if(AllowsCurtain(plan) && plan.curtainEvery > 0 && f % plan.curtainEvery == 0){
+        if(AllowsCurtain(localPlan) && localPlan.curtainEvery > 0 && f % localPlan.curtainEvery == 0){
             float bandTop = totalHeight;
-            if(plan.usePodiumTower && !plan.useLShape && f < plan.podiumFloors){
-                bandTop = pilotisHeight + plan.podiumFloors * plan.floorH;
+            if(localPlan.usePodiumTower && !localPlan.useLShape && f < localPlan.podiumFloors){
+                bandTop = pilotisHeight + localPlan.podiumFloors * localPlan.floorH;
             }
-            if(AddCurtainWallBand(model, floorFp, z, bandTop, totalHeight, plan)){
+            if(AddCurtainWallBand(model, floorFp, z, bandTop, totalHeight, localPlan)){
                 addedCurtain = true;
             }
         }
 
-        AddBriseSoleil(model, floorFp, z, f, plan);
+        AddBriseSoleil(model, floorFp, z, f, localPlan);
     }
 
-    if(!addedCurtain && AllowsCurtain(plan)){
-        float z0 = pilotisHeight + plan.slabT;
-        float z1 = totalHeight - plan.roofCapT;
+    if(!addedCurtain && AllowsCurtain(localPlan)){
+        float z0 = pilotisHeight + localPlan.slabT;
+        float z1 = totalHeight - localPlan.roofCapT;
         if(z1 > z0 + 0.01f){
-            Polygon2D cwFp = OutsetFromCentroid(fp.base, -plan.curtainInset);
+            Polygon2D cwFp = OutsetFromCentroid(fp.base, -localPlan.curtainInset);
             AddCurtainWallVolume(model,
                                  cwFp,
                                  z0,
                                  z1,
                                  0.0f,
-                                 plan.window,
-                                 plan.concrete,
+                                 localPlan.window,
+                                 localPlan.concrete,
                                  2.2f,
                                  0.35f,
                                  0.15f);
         }
     }
 
-    AddPodiumRoof(model, fp.base, pilotisHeight, plan);
-    AddPilotis(model, fp.baseRect, fp.base, plan, pilotisHeight);
+    AddPodiumRoof(model, fp.base, pilotisHeight, localPlan);
+    AddPilotis(model, fp.baseRect, fp.base, localPlan, pilotisHeight);
 
     Polygon2D capBase = fp.base;
-    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
+    if(localPlan.usePodiumTower && !localPlan.useLShape && localPlan.podiumFloors < localPlan.totalFloors){
         capBase = fp.towerBase;
     }
-    AddRoofCap(model, capBase, totalHeight, plan);
+    AddRoofCap(model, capBase, totalHeight, localPlan);
 
     Polygon2D deckBase = fp.base;
-    if(plan.usePodiumTower && !plan.useLShape && plan.podiumFloors < plan.totalFloors){
+    if(localPlan.usePodiumTower && !localPlan.useLShape && localPlan.podiumFloors < localPlan.totalFloors){
         deckBase = fp.towerBase;
     }
-    AddRoofDeck(model, deckBase, totalHeight, plan);
+    AddRoofDeck(model, deckBase, totalHeight, localPlan);
 
     return CompileBuildingModel(model);
 }

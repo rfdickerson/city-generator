@@ -15,12 +15,20 @@ struct CityConfig {
     float roadThickness;
 
     float lotDepth;
+    float lotDepthMax;
     float lotWidth;
+    float lotWidthMax;
+    float resLotDepth;
+    float resLotDepthMax;
+    float resLotWidth;
+    float resLotWidthMax;
     float lotGap;
     float sidewalk;
     float lotSetback;
     float parkChance;
     float parkingChance;
+    float lotRotationMaxDeg;
+    float resLotChance;
 
     int minFloors;
     int maxFloors;
